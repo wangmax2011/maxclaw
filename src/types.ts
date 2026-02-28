@@ -25,7 +25,7 @@ export interface Activity {
   id: string;
   projectId: string;
   sessionId?: string;
-  type: 'start' | 'command' | 'complete' | 'discover' | 'add' | 'remove';
+  type: 'start' | 'command' | 'complete' | 'discover' | 'add' | 'remove' | 'team_start' | 'team_stop';
   timestamp: string;
   details?: Record<string, unknown>;
 }
@@ -63,4 +63,84 @@ export interface RunningSession {
   projectPath: string;
   startedAt: string;
   pid: number;
+}
+
+// ===== Team Management Types =====
+
+export interface Team {
+  id: string;
+  name: string;
+  projectId: string;
+  leadId: string;
+  memberIds: string[];
+  status: 'idle' | 'active' | 'completed';
+  createdAt: string;
+  config?: TeamConfig;
+}
+
+export interface TeamConfig {
+  maxMembers?: number;
+  coordinationMode?: 'hierarchical' | 'flat';
+  autoAssign?: boolean;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: TeamRole;
+  specialty: string[];
+  status: 'idle' | 'busy' | 'offline';
+  currentTask?: string;
+  teamId: string;
+}
+
+export type TeamRole = 'lead' | 'developer' | 'architect' | 'qa' | 'pm' | 'analyst';
+
+export interface TeamSession {
+  id: string;
+  teamId: string;
+  projectId: string;
+  startedAt: string;
+  endedAt?: string;
+  status: 'active' | 'completed' | 'interrupted';
+  goal?: string;
+  tasks: TeamTask[];
+}
+
+export interface TeamTask {
+  id: string;
+  teamId: string;
+  sessionId: string;
+  assigneeId: string;
+  title: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  dependencies: string[];
+  createdAt: string;
+  completedAt?: string;
+  result?: string;
+}
+
+export interface TeamMessage {
+  id: string;
+  sessionId: string;
+  fromId: string;
+  toId?: string;
+  type: TeamMessageType;
+  content: string;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type TeamMessageType =
+  | 'task_assigned'
+  | 'status_update'
+  | 'result'
+  | 'question'
+  | 'coordination'
+  | 'broadcast';
+
+export interface TeamWithMembers extends Team {
+  lead: TeamMember;
+  members: TeamMember[];
 }
