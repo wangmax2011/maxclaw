@@ -134,14 +134,16 @@ Keyboard shortcuts:
 - `[2]` Projects - Browse and manage projects
 - `[3]` Sessions - View and control sessions
 - `[4]` Teams - Manage team members and tasks
+- `[s]` Quick access to Sessions
+- `[d]` Quick project discovery
 - `[h]` Help - Show keyboard shortcuts
 - `[q]` Quit TUI
 
 Features:
 - **Real-time updates** - Auto-refresh every 3 seconds
+- **Resource monitoring** - Live CPU and memory usage tracking
 - **Interactive navigation** - Keyboard-driven interface
 - **Session management** - Start, stop, and monitor sessions visually
-- **Resource monitoring** - View CPU and memory usage at a glance
 
 ## Installation
 
