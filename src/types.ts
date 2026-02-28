@@ -63,12 +63,23 @@ export interface MaxClawConfig {
   };
   dataDir: string;
   ai?: AIConfig;
+  multiplex?: MultiplexConfig;
+  tui?: TUIConfig;
 }
 
 export interface AIConfig {
   summaryEnabled?: boolean;
   summaryModel?: string;
   apiKey?: string;
+}
+
+export interface MultiplexConfig {
+  maxSessions?: number;
+  maxSessionsPerProject?: number;
+}
+
+export interface TUIConfig {
+  refreshInterval?: number;
 }
 
 export interface RunningSession {

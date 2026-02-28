@@ -30,7 +30,7 @@ export const DEFAULT_TUI_CONFIG: TUIConfig = {
   theme: DEFAULT_THEME,
 };
 
-export type ScreenType = 'dashboard' | 'projects' | 'sessions' | 'teams' | 'help';
+export type ScreenType = 'dashboard' | 'overview' | 'projects' | 'sessions' | 'teams' | 'schedules' | 'skills' | 'settings' | 'templates' | 'help' | 'task-dispatcher';
 
 export interface ScreenProps {
   onFocus: boolean;

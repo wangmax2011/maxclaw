@@ -31,6 +31,13 @@ export const DEFAULT_CONFIG: MaxClawConfig = {
     summaryModel: 'claude-3-sonnet-20240229',
     // apiKey is not set by default - use ANTHROPIC_API_KEY env var
   },
+  multiplex: {
+    maxSessions: 5,
+    maxSessionsPerProject: 2,
+  },
+  tui: {
+    refreshInterval: 3000,
+  },
 };
 
 export function ensureDataDir(): void {
