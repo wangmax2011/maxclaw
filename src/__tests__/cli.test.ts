@@ -46,7 +46,8 @@ describe('CLI Integration Tests', () => {
         env: homeEnv,
       });
     } catch (error: any) {
-      return error.stdout || error.stderr || '';
+      // Combine stdout and stderr to capture all output
+      return (error.stdout || '') + (error.stderr || '');
     }
   }
 

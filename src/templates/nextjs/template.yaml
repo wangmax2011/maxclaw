@@ -1,0 +1,33 @@
+name: nextjs
+version: 1.0.0
+description: Next.js application template with App Router
+author: MaxClaw
+variables:
+  - name: project_name
+    description: Project name
+    required: true
+  - name: author
+    description: Author name
+    default: ""
+  - name: description
+    description: Project description
+    default: "A Next.js application"
+dependencies:
+  npm:
+    - next
+    - react
+    - react-dom
+    - typescript
+    - "@types/node"
+    - "@types/react"
+    - "@types/react-dom"
+gitignore:
+  - .next/
+  - node_modules/
+  - "*.log"
+  - .env
+  - .env.local
+  - ".env.*.local"
+  - coverage/
+  - .DS_Store
+postInstall: []

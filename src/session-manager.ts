@@ -18,6 +18,8 @@ import {
 } from './db.js';
 import { logger } from './logger.js';
 import { Activity, RunningSession, Session } from './types.js';
+import { generateSummary, isSummarizationEnabled } from './ai-summarizer.js';
+import { getSessionLogForProject } from './session-logger.js';
 
 const exec = util.promisify(child_process.exec);
 
@@ -184,6 +186,20 @@ export async function startClaudeSession(
       });
 
       logger.info('Session ended: %s (exit code: %d)', sessionId, code ?? -1);
+
+      // Trigger summary generation asynchronously
+      if (isSummarizationEnabled()) {
+        generateSessionSummary(sessionId, project.path).catch((err) => {
+          logger.error('Failed to generate summary for session %s: %s', sessionId, err);
+        });
+      }
+
+      // E6: Send session summary notification
+      import('./notifier.js').then(({ sendSessionSummary }) => {
+        sendSessionSummary(sessionId).catch((err) => {
+          logger.error('Failed to send session summary notification for session %s: %s', sessionId, err);
+        });
+      });
     });
 
     return session;
@@ -295,4 +311,107 @@ export function formatSessionDuration(session: Session): string {
     return `${hours}h ${minutes}m`;
   }
   return `${minutes}m`;
+}
+
+/**
+ * Generate and store summary for a session
+ */
+export async function generateSessionSummary(
+  sessionId: string,
+  projectPath: string
+): Promise<Session | null> {
+  const session = getSession(sessionId);
+  if (!session) {
+    logger.error('Session not found for summary generation: %s', sessionId);
+    return null;
+  }
+
+  // Update status to pending
+  updateSession({
+    id: sessionId,
+    summaryStatus: 'pending',
+  });
+
+  try {
+    // Get session log
+    const sessionLog = getSessionLogForProject(projectPath);
+
+    if (!sessionLog || sessionLog.entries.length === 0) {
+      logger.warn('No session log found for project: %s', projectPath);
+      updateSession({
+        id: sessionId,
+        summaryStatus: 'failed',
+      });
+      return null;
+    }
+
+    // Generate summary
+    const result = await generateSummary(sessionLog.entries);
+
+    if (result.status === 'generated' && result.summary) {
+      updateSession({
+        id: sessionId,
+        summary: result.summary,
+        summaryStatus: 'generated',
+        summaryGeneratedAt: new Date().toISOString(),
+      });
+
+      logger.info('Summary generated for session: %s', sessionId);
+
+      // E5: Auto-sync to Notion if configured
+      try {
+        const { autoSyncSessionSummary } = await import('./notion-sync.js');
+        await autoSyncSessionSummary(sessionId);
+      } catch (syncError) {
+        logger.warn('Failed to auto-sync session to Notion: %s', syncError);
+        // Don't fail the summary generation if sync fails
+      }
+
+      return getSession(sessionId);
+    } else {
+      updateSession({
+        id: sessionId,
+        summaryStatus: 'failed',
+      });
+
+      logger.error('Failed to generate summary: %s', result.error);
+      return null;
+    }
+  } catch (error) {
+    logger.error('Error generating summary: %s', error);
+    updateSession({
+      id: sessionId,
+      summaryStatus: 'failed',
+    });
+    return null;
+  }
+}
+
+/**
+ * Get session summary
+ */
+export function getSessionSummary(sessionId: string): string | null {
+  const session = getSession(sessionId);
+  if (!session) {
+    return null;
+  }
+
+  return session.summary || null;
+}
+
+/**
+ * Manually trigger summary generation for a session
+ */
+export async function regenerateSessionSummary(sessionId: string): Promise<Session | null> {
+  const session = getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+
+  const project = getProject(session.projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${session.projectId}`);
+  }
+
+  return generateSessionSummary(sessionId, project.path);
 }

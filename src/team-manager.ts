@@ -34,6 +34,9 @@ import type {
   TeamRole,
   TeamConfig,
   TeamWithMembers,
+  TaskAssignmentResult,
+  TaskType,
+  TaskPriority,
 } from './types.js';
 
 function generateId(): string {
@@ -500,6 +503,22 @@ export function completeTask(
   createTeamMessage(message);
 
   logger.info('Completed task: %s', foundTask.title);
+
+  // E6: Send task completion notification
+  const session = getTeamSession(foundTask.sessionId);
+  if (session) {
+    const team = getTeam(session.teamId);
+    if (team) {
+      const project = getProject(team.projectId);
+      if (project?.notificationWebhook) {
+        void import('./notifier.js').then(({ sendTaskCompleted }) => {
+          sendTaskCompleted(taskId).catch((err) => {
+            logger.error('Failed to send task completion notification: %s', err);
+          });
+        });
+      }
+    }
+  }
 }
 
 export function updateTaskStatus(
@@ -591,11 +610,285 @@ export function getMemberWorkload(teamId: string): { member: TeamMember; taskCou
   });
 }
 
-export function suggestTaskAssignment(teamId: string): TeamMember | null {
-  const available = getAvailableMembers(teamId);
-  if (available.length === 0) return null;
+/**
+ * E7: Smart Task Assignment Algorithm
+ *
+ * Calculates the best member for a task based on:
+ * - Skill Match Score (60%): How well member's expertise matches required skills
+ * - Workload Factor (40%): Remaining capacity of the member
+ *
+ * Formula:
+ *   Match Score = (Skill Match * 0.6) + (Workload Factor * 0.4)
+ *
+ * Where:
+ *   Skill Match = Matched Skills / Total Required Skills
+ *   Workload Factor = 1 - (Current Tasks / Max Concurrent Tasks)
+ *
+ * Members at full capacity are filtered out.
+ * Team leads (role='lead') are also excluded as they are for coordination only.
+ */
+export function suggestSmartTaskAssignment(
+  teamId: string,
+  requiredSkills: string[] = [],
+  taskType?: TaskType
+): TaskAssignmentResult[] {
+  const members = listTeamMembers(teamId);
+  const sessions = listActiveTeamSessions();
 
-  // For now, just pick the first available member
-  // Could be enhanced with specialty matching, workload balancing, etc.
-  return available[0];
+  // Calculate results for all active members (excluding team leads)
+  const results: TaskAssignmentResult[] = [];
+
+  for (const member of members) {
+    // Skip team leads - they are for coordination only
+    if (member.role === 'lead') continue;
+
+    // Skip offline members
+    if (member.status === 'offline') continue;
+
+    // Count current active tasks for this member
+    let currentTasks = 0;
+    for (const session of sessions) {
+      if (session.teamId === teamId) {
+        const tasks = listTeamTasksForSession(session.id);
+        currentTasks += tasks.filter(
+          (t) => t.assigneeId === member.id && t.status !== 'completed' && t.status !== 'blocked'
+        ).length;
+      }
+    }
+
+    const maxTasks = member.maxConcurrentTasks ?? 3;
+
+    // Skip members at full capacity
+    if (currentTasks >= maxTasks) {
+      continue;
+    }
+
+    // Calculate skill match score
+    let skillMatchScore = 0;
+    if (requiredSkills.length === 0) {
+      // No specific skills required, everyone is equally matched
+      skillMatchScore = 1;
+    } else {
+      // Use expertise if available and non-empty, otherwise fall back to specialty
+      const memberExpertise = (member.expertise && member.expertise.length > 0)
+        ? member.expertise
+        : (member.specialty || []);
+      const matchedSkills = requiredSkills.filter((skill) =>
+        memberExpertise.some((exp) => exp.toLowerCase() === skill.toLowerCase())
+      );
+      skillMatchScore = matchedSkills.length / requiredSkills.length;
+    }
+
+    // Calculate workload factor (remaining capacity)
+    const workloadFactor = 1 - currentTasks / maxTasks;
+
+    // Calculate overall score using weighted formula
+    // Skill Match: 60%, Workload Factor: 40%
+    const overallScore = skillMatchScore * 0.6 + workloadFactor * 0.4;
+
+    results.push({
+      member,
+      skillMatchScore,
+      workloadFactor,
+      overallScore,
+      currentTasks,
+      maxTasks,
+    });
+  }
+
+  // Sort by overall score descending
+  return results.sort((a, b) => b.overallScore - a.overallScore);
+}
+
+/**
+ * Legacy function - kept for backward compatibility
+ * Returns the best available member or null
+ */
+export function suggestTaskAssignment(teamId: string): TeamMember | null {
+  const recommendations = suggestSmartTaskAssignment(teamId);
+  return recommendations.length > 0 ? recommendations[0].member : null;
+}
+
+/**
+ * E7: Get detailed workload distribution for a team
+ */
+export function getTeamWorkloadDistribution(teamId: string): {
+  member: TeamMember;
+  currentTasks: number;
+  maxTasks: number;
+  utilization: number; // 0-1 percentage
+}[] {
+  const members = listTeamMembers(teamId);
+  const sessions = listActiveTeamSessions();
+
+  return members.map((member) => {
+    let currentTasks = 0;
+    for (const session of sessions) {
+      if (session.teamId === teamId) {
+        const tasks = listTeamTasksForSession(session.id);
+        currentTasks += tasks.filter(
+          (t) => t.assigneeId === member.id && t.status !== 'completed' && t.status !== 'blocked'
+        ).length;
+      }
+    }
+
+    const maxTasks = member.maxConcurrentTasks ?? 3;
+    const utilization = currentTasks / maxTasks;
+
+    return {
+      member,
+      currentTasks,
+      maxTasks,
+      utilization,
+    };
+  });
+}
+
+/**
+ * E7: Update member expertise
+ */
+export function updateMemberExpertise(memberId: string, expertise: string[]): void {
+  const member = getTeamMember(memberId);
+  if (!member) {
+    throw new Error(`Team member not found: ${memberId}`);
+  }
+
+  updateTeamMember({ id: memberId, expertise });
+
+  logger.info('Updated member %s expertise: %s', member.name, expertise.join(', '));
+}
+
+/**
+ * E7: Update member capacity (max concurrent tasks)
+ */
+export function updateMemberCapacity(memberId: string, maxTasks: number): void {
+  const member = getTeamMember(memberId);
+  if (!member) {
+    throw new Error(`Team member not found: ${memberId}`);
+  }
+
+  if (maxTasks < 1 || maxTasks > 10) {
+    throw new Error('Max concurrent tasks must be between 1 and 10');
+  }
+
+  updateTeamMember({ id: memberId, maxConcurrentTasks: maxTasks });
+
+  logger.info('Updated member %s max concurrent tasks to %d', member.name, maxTasks);
+}
+
+/**
+ * E7: Create a task with smart assignment support
+ */
+export function createTaskWithSmartAssignment(
+  sessionId: string,
+  title: string,
+  options: {
+    description?: string;
+    type?: TaskType;
+    requiredSkills?: string[];
+    priority?: TaskPriority;
+    assigneeId?: string;
+    autoAssign?: boolean;
+  } = {}
+): TeamTask {
+  const session = getTeamSession(sessionId);
+  if (!session) {
+    throw new Error(`Team session not found: ${sessionId}`);
+  }
+
+  const teamId = session.teamId;
+  let assigneeId: string;
+
+  // If auto-assign is enabled and no assignee specified, use smart assignment
+  if (options.autoAssign && !options.assigneeId) {
+    const recommendations = suggestSmartTaskAssignment(
+      teamId,
+      options.requiredSkills,
+      options.type
+    );
+    if (recommendations.length === 0) {
+      throw new Error('No available team members for task assignment');
+    }
+    assigneeId = recommendations[0].member.id;
+  } else if (options.assigneeId) {
+    // Verify the specified assignee exists and is part of the team
+    const member = getTeamMember(options.assigneeId);
+    if (!member) {
+      throw new Error(`Team member not found: ${options.assigneeId}`);
+    }
+    if (member.teamId !== teamId) {
+      throw new Error(`Member ${member.name} is not part of this team`);
+    }
+    assigneeId = options.assigneeId;
+  } else {
+    throw new Error('Either assigneeId or autoAssign must be specified');
+  }
+
+  const taskId = generateId();
+  const now = new Date().toISOString();
+
+  const task: TeamTask = {
+    id: taskId,
+    teamId,
+    sessionId,
+    assigneeId,
+    title,
+    description: options.description,
+    status: 'pending',
+    dependencies: [],
+    createdAt: now,
+    type: options.type ?? 'feature',
+    requiredSkills: options.requiredSkills,
+    priority: options.priority ?? 3,
+  };
+
+  createTeamTask(task);
+
+  // Update member status
+  updateTeamMember({ id: assigneeId, status: 'busy', currentTask: taskId });
+
+  // Create assignment message
+  const member = getTeamMember(assigneeId);
+  const message: TeamMessage = {
+    id: generateId(),
+    sessionId,
+    fromId: teamId, // From team/system
+    toId: assigneeId,
+    type: 'task_assigned',
+    content: `New task assigned: ${title}`,
+    timestamp: now,
+    metadata: { taskId, type: options.type, priority: options.priority },
+  };
+  createTeamMessage(message);
+
+  logger.info('Assigned task "%s" to %s', title, member?.name ?? 'Unknown');
+
+  // E6: Send task assignment notification
+  const taskTeam = getTeam(teamId);
+  if (taskTeam) {
+    const project = getProject(taskTeam.projectId);
+    if (project?.notificationWebhook) {
+      void import('./notifier.js').then(({ sendNotification }) => {
+        const priorityText = options.priority ? ` (Priority: ${options.priority}/5)` : '';
+        const typeText = options.type ? ` [${options.type}]` : '';
+        return sendNotification(
+          project.id,
+          `**Task Assigned${typeText}${priorityText}**\n\n**${title}**\n${options.description ?? 'No description'}\n\n**Assigned to:** ${member?.name ?? 'Unknown'}`,
+          {
+            level: 'info',
+            metadata: {
+              taskId,
+              assigneeId,
+              type: options.type,
+              priority: options.priority,
+            },
+          }
+        );
+      }).catch((err) => {
+        logger.error('Failed to send task assignment notification: %s', err);
+      });
+    }
+  }
+
+  return task;
 }

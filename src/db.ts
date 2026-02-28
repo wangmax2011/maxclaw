@@ -72,6 +72,8 @@ function createSchema(database: Database.Database): void {
       name TEXT NOT NULL,
       role TEXT NOT NULL,
       specialty TEXT,
+      expertise TEXT, -- JSON array of skills ["frontend", "backend", "ai"]
+      max_concurrent_tasks INTEGER DEFAULT 3,
       status TEXT NOT NULL DEFAULT 'idle',
       current_task TEXT,
       team_id TEXT NOT NULL,
@@ -128,6 +130,68 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_team_messages_session ON team_messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_team_messages_timestamp ON team_messages(timestamp);
+
+    -- E10: Agent messages table for inter-agent communication
+    CREATE TABLE IF NOT EXISTS agent_messages (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      receiver TEXT,
+      topic TEXT,
+      payload TEXT NOT NULL,
+      headers TEXT,
+      correlation_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      delivered_at TEXT,
+      read_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_sender ON agent_messages(sender);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_receiver ON agent_messages(receiver);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_topic ON agent_messages(topic);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_created_at ON agent_messages(created_at);
+
+    -- E3: Schedules table for scheduled tasks
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      cron_expression TEXT NOT NULL,
+      task_type TEXT NOT NULL,
+      command TEXT,
+      skill_name TEXT,
+      skill_command TEXT,
+      skill_args TEXT,
+      message TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run TEXT,
+      next_run TEXT,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
+    CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON schedules(enabled);
+    CREATE INDEX IF NOT EXISTS idx_schedules_next_run ON schedules(next_run);
+
+    -- E3: Schedule logs table
+    CREATE TABLE IF NOT EXISTS schedule_logs (
+      id TEXT PRIMARY KEY,
+      schedule_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      output TEXT,
+      error TEXT,
+      duration INTEGER,
+      FOREIGN KEY (schedule_id) REFERENCES schedules(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_schedule_logs_schedule ON schedule_logs(schedule_id);
+    CREATE INDEX IF NOT EXISTS idx_schedule_logs_status ON schedule_logs(status);
   `);
 }
 
@@ -136,6 +200,7 @@ export function initDatabase(): void {
 
   db = new Database(DB_PATH);
   createSchema(db);
+  runMigrations(db);
   logger.debug('Database initialized at %s', DB_PATH);
 }
 
@@ -143,6 +208,138 @@ export function initDatabase(): void {
 export function _initTestDatabase(): void {
   db = new Database(':memory:');
   createSchema(db);
+  runMigrations(db);
+}
+
+// E6: Database migrations
+function runMigrations(database: Database.Database): void {
+  // E6: Notification - Add notification columns to projects
+  const projectsColumns = database
+    .prepare("PRAGMA table_info(projects)")
+    .all() as Array<{ name: string }>;
+  const hasNotificationWebhook = projectsColumns.some((col) => col.name === 'notification_webhook');
+  const hasNotificationType = projectsColumns.some((col) => col.name === 'notification_type');
+  const hasNotificationLevel = projectsColumns.some((col) => col.name === 'notification_level');
+
+  if (!hasNotificationWebhook) {
+    database.exec(`ALTER TABLE projects ADD COLUMN notification_webhook TEXT;`);
+    logger.debug('Migration: Added notification_webhook column to projects');
+  }
+
+  if (!hasNotificationType) {
+    database.exec(`ALTER TABLE projects ADD COLUMN notification_type TEXT DEFAULT 'custom';`);
+    logger.debug('Migration: Added notification_type column to projects');
+  }
+
+  if (!hasNotificationLevel) {
+    database.exec(`ALTER TABLE projects ADD COLUMN notification_level TEXT DEFAULT 'info';`);
+    logger.debug('Migration: Added notification_level column to projects');
+  }
+  // E4: GitHub Integration - Add github_repo and github_token columns to projects
+  const hasGithubRepo = projectsColumns.some((col) => col.name === 'github_repo');
+  const hasGithubToken = projectsColumns.some((col) => col.name === 'github_token');
+
+  if (!hasGithubRepo) {
+    database.exec(`ALTER TABLE projects ADD COLUMN github_repo TEXT;`);
+    logger.debug('Migration: Added github_repo column to projects');
+  }
+
+  if (!hasGithubToken) {
+    database.exec(`ALTER TABLE projects ADD COLUMN github_token TEXT;`);
+    logger.debug('Migration: Added github_token column to projects');
+  }
+
+  // E5: Notion Integration - Add notion_page_id column to projects
+  const hasNotionPageId = projectsColumns.some((col) => col.name === 'notion_page_id');
+
+  if (!hasNotionPageId) {
+    database.exec(`ALTER TABLE projects ADD COLUMN notion_page_id TEXT;`);
+    logger.debug('Migration: Added notion_page_id column to projects');
+  }
+
+  // E10: Agent Protocol - Check for agent_messages table
+  const tableNames = database
+    .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+    .all() as Array<{ name: string }>;
+  const hasAgentMessages = tableNames.some((t) => t.name === 'agent_messages');
+
+  if (!hasAgentMessages) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS agent_messages (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        sender TEXT NOT NULL,
+        receiver TEXT,
+        topic TEXT,
+        payload TEXT NOT NULL,
+        headers TEXT,
+        correlation_id TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        delivered_at TEXT,
+        read_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_messages_sender ON agent_messages(sender);
+      CREATE INDEX IF NOT EXISTS idx_agent_messages_receiver ON agent_messages(receiver);
+      CREATE INDEX IF NOT EXISTS idx_agent_messages_topic ON agent_messages(topic);
+      CREATE INDEX IF NOT EXISTS idx_agent_messages_status ON agent_messages(status);
+      CREATE INDEX IF NOT EXISTS idx_agent_messages_created_at ON agent_messages(created_at);
+    `);
+    logger.debug('Migration: Added agent_messages table');
+  }
+
+  // E3: Scheduler - Check for schedules and schedule_logs tables
+  const hasSchedules = tableNames.some((t) => t.name === 'schedules');
+  const hasScheduleLogs = tableNames.some((t) => t.name === 'schedule_logs');
+
+  if (!hasSchedules) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        cron_expression TEXT NOT NULL,
+        task_type TEXT NOT NULL,
+        command TEXT,
+        skill_name TEXT,
+        skill_command TEXT,
+        skill_args TEXT,
+        message TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_run TEXT,
+        next_run TEXT,
+        run_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
+      CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON schedules(enabled);
+      CREATE INDEX IF NOT EXISTS idx_schedules_next_run ON schedules(next_run);
+    `);
+    logger.debug('Migration: Added schedules table');
+  }
+
+  if (!hasScheduleLogs) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS schedule_logs (
+        id TEXT PRIMARY KEY,
+        schedule_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        output TEXT,
+        error TEXT,
+        duration INTEGER,
+        FOREIGN KEY (schedule_id) REFERENCES schedules(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_schedule_logs_schedule ON schedule_logs(schedule_id);
+      CREATE INDEX IF NOT EXISTS idx_schedule_logs_status ON schedule_logs(status);
+    `);
+    logger.debug('Migration: Added schedule_logs table');
+  }
 }
 
 // Project operations
@@ -173,6 +370,7 @@ export function getProject(id: string): Project | null {
         tech_stack: string;
         discovered_at: string;
         last_accessed: string | null;
+        notion_page_id: string | null;
       }
     | undefined;
 
@@ -186,6 +384,7 @@ export function getProject(id: string): Project | null {
     techStack: JSON.parse(row.tech_stack),
     discoveredAt: row.discovered_at,
     lastAccessed: row.last_accessed ?? undefined,
+    notionPageId: row.notion_page_id ?? undefined,
   };
 }
 
@@ -199,6 +398,7 @@ export function getProjectByPath(path: string): Project | null {
         tech_stack: string;
         discovered_at: string;
         last_accessed: string | null;
+        notion_page_id: string | null;
       }
     | undefined;
 
@@ -212,6 +412,7 @@ export function getProjectByPath(path: string): Project | null {
     techStack: JSON.parse(row.tech_stack),
     discoveredAt: row.discovered_at,
     lastAccessed: row.last_accessed ?? undefined,
+    notionPageId: row.notion_page_id ?? undefined,
   };
 }
 
@@ -234,6 +435,10 @@ export function updateProject(project: Partial<Project> & { id: string }): void 
   if (project.lastAccessed !== undefined) {
     fields.push('last_accessed = ?');
     values.push(project.lastAccessed);
+  }
+  if (project.notionPageId !== undefined) {
+    fields.push('notion_page_id = ?');
+    values.push(project.notionPageId);
   }
 
   if (fields.length === 0) return;
@@ -258,6 +463,7 @@ export function listProjects(): Project[] {
     tech_stack: string;
     discovered_at: string;
     last_accessed: string | null;
+    notion_page_id: string | null;
   }>;
 
   return rows.map((row) => ({
@@ -268,6 +474,7 @@ export function listProjects(): Project[] {
     techStack: JSON.parse(row.tech_stack),
     discoveredAt: row.discovered_at,
     lastAccessed: row.last_accessed ?? undefined,
+    notionPageId: row.notion_page_id ?? undefined,
   }));
 }
 
@@ -626,7 +833,9 @@ export function getTeamMember(id: string): TeamMember | null {
         id: string;
         name: string;
         role: string;
-        specialty: string;
+        specialty: string | null;
+        expertise: string | null;
+        max_concurrent_tasks: number | null;
         status: 'idle' | 'busy' | 'offline';
         current_task: string | null;
         team_id: string;
@@ -639,7 +848,9 @@ export function getTeamMember(id: string): TeamMember | null {
     id: row.id,
     name: row.name,
     role: row.role as TeamMember['role'],
-    specialty: JSON.parse(row.specialty),
+    specialty: row.specialty ? JSON.parse(row.specialty) : [],
+    expertise: row.expertise ? JSON.parse(row.expertise) : undefined,
+    maxConcurrentTasks: row.max_concurrent_tasks ?? undefined,
     status: row.status,
     currentTask: row.current_task ?? undefined,
     teamId: row.team_id,
@@ -651,7 +862,9 @@ export function listTeamMembers(teamId: string): TeamMember[] {
     id: string;
     name: string;
     role: string;
-    specialty: string;
+    specialty: string | null;
+    expertise: string | null;
+    max_concurrent_tasks: number | null;
     status: 'idle' | 'busy' | 'offline';
     current_task: string | null;
     team_id: string;
@@ -661,7 +874,9 @@ export function listTeamMembers(teamId: string): TeamMember[] {
     id: row.id,
     name: row.name,
     role: row.role as TeamMember['role'],
-    specialty: JSON.parse(row.specialty),
+    specialty: row.specialty ? JSON.parse(row.specialty) : [],
+    expertise: row.expertise ? JSON.parse(row.expertise) : undefined,
+    maxConcurrentTasks: row.max_concurrent_tasks ?? undefined,
     status: row.status,
     currentTask: row.current_task ?? undefined,
     teamId: row.team_id,
@@ -687,6 +902,14 @@ export function updateTeamMember(member: Partial<TeamMember> & { id: string }): 
   if (member.specialty !== undefined) {
     fields.push('specialty = ?');
     values.push(JSON.stringify(member.specialty));
+  }
+  if (member.expertise !== undefined) {
+    fields.push('expertise = ?');
+    values.push(JSON.stringify(member.expertise));
+  }
+  if (member.maxConcurrentTasks !== undefined) {
+    fields.push('max_concurrent_tasks = ?');
+    values.push(member.maxConcurrentTasks);
   }
 
   if (fields.length === 0) return;
@@ -944,4 +1167,681 @@ export function listTeamMessagesForSession(sessionId: string, limit = 100): Team
     timestamp: row.timestamp,
     metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
   }));
+}
+
+// ===== E10: Agent Message Operations =====
+
+import type { AgentMessage, MessagePayload, MessageHeader, MessageType, MessageStatus } from './agent-protocol/types.js';
+
+export interface AgentMessageRecord {
+  id: string;
+  messageId: string;
+  type: MessageType;
+  sender: string;
+  receiver: string | null;
+  topic: string | null;
+  payload: MessagePayload;
+  headers: MessageHeader | null;
+  correlationId: string | null;
+  status: MessageStatus;
+  createdAt: string;
+  deliveredAt: string | null;
+  readAt: string | null;
+}
+
+/**
+ * Create an agent message record
+ */
+export function createAgentMessage(message: AgentMessage, topic?: string): void {
+  const stmt = db.prepare(`
+    INSERT INTO agent_messages (id, message_id, type, sender, receiver, topic, payload, headers, correlation_id, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    message.id,
+    message.type,
+    message.sender,
+    message.receiver ?? null,
+    topic ?? null,
+    JSON.stringify(message.payload),
+    message.headers ? JSON.stringify(message.headers) : null,
+    message.correlationId ?? null,
+    message.status ?? 'pending',
+    message.timestamp
+  );
+}
+
+/**
+ * Get an agent message by ID
+ */
+export function getAgentMessage(id: string): AgentMessageRecord | null {
+  const row = db.prepare('SELECT * FROM agent_messages WHERE id = ?').get(id) as
+    | {
+        id: string;
+        message_id: string;
+        type: string;
+        sender: string;
+        receiver: string | null;
+        topic: string | null;
+        payload: string;
+        headers: string | null;
+        correlation_id: string | null;
+        status: string;
+        created_at: string;
+        delivered_at: string | null;
+        read_at: string | null;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    type: row.type as MessageType,
+    sender: row.sender,
+    receiver: row.receiver,
+    topic: row.topic,
+    payload: JSON.parse(row.payload),
+    headers: row.headers ? JSON.parse(row.headers) : null,
+    correlationId: row.correlation_id,
+    status: row.status as AgentMessageRecord['status'],
+    createdAt: row.created_at,
+    deliveredAt: row.delivered_at,
+    readAt: row.read_at,
+  };
+}
+
+/**
+ * Get an agent message by message ID
+ */
+export function getAgentMessageByMessageId(messageId: string): AgentMessageRecord | null {
+  const row = db.prepare('SELECT * FROM agent_messages WHERE message_id = ?').get(messageId) as
+    | {
+        id: string;
+        message_id: string;
+        type: string;
+        sender: string;
+        receiver: string | null;
+        topic: string | null;
+        payload: string;
+        headers: string | null;
+        correlation_id: string | null;
+        status: string;
+        created_at: string;
+        delivered_at: string | null;
+        read_at: string | null;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    type: row.type as MessageType,
+    sender: row.sender,
+    receiver: row.receiver,
+    topic: row.topic,
+    payload: JSON.parse(row.payload),
+    headers: row.headers ? JSON.parse(row.headers) : null,
+    correlationId: row.correlation_id,
+    status: row.status as AgentMessageRecord['status'],
+    createdAt: row.created_at,
+    deliveredAt: row.delivered_at,
+    readAt: row.read_at,
+  };
+}
+
+/**
+ * Update an agent message status
+ */
+export function updateAgentMessageStatus(messageId: string, status: 'delivered' | 'read' | 'failed'): void {
+  const now = new Date().toISOString();
+  const updates: string[] = ['status = ?'];
+  const values: unknown[] = [status];
+
+  if (status === 'delivered') {
+    updates.push('delivered_at = ?');
+    values.push(now);
+  } else if (status === 'read') {
+    updates.push('read_at = ?');
+    values.push(now);
+  }
+
+  values.push(messageId);
+
+  db.prepare(`UPDATE agent_messages SET ${updates.join(', ')} WHERE message_id = ?`).run(...values);
+}
+
+/**
+ * List agent messages with optional filters
+ */
+export function listAgentMessages(options?: {
+  sender?: string;
+  receiver?: string;
+  topic?: string;
+  status?: string;
+  limit?: number;
+}): AgentMessageRecord[] {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (options?.sender) {
+    conditions.push('sender = ?');
+    values.push(options.sender);
+  }
+
+  if (options?.receiver) {
+    conditions.push('receiver = ?');
+    values.push(options.receiver);
+  }
+
+  if (options?.topic) {
+    conditions.push('topic = ?');
+    values.push(options.topic);
+  }
+
+  if (options?.status) {
+    conditions.push('status = ?');
+    values.push(options.status);
+  }
+
+  const limit = options?.limit ?? 100;
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const query = `SELECT * FROM agent_messages ${whereClause} ORDER BY created_at DESC LIMIT ?`;
+  values.push(limit);
+
+  const rows = db.prepare(query).all(...values) as Array<{
+    id: string;
+    message_id: string;
+    type: string;
+    sender: string;
+    receiver: string | null;
+    topic: string | null;
+    payload: string;
+    headers: string | null;
+    correlation_id: string | null;
+    status: string;
+    created_at: string;
+    delivered_at: string | null;
+    read_at: string | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    messageId: row.message_id,
+    type: row.type as MessageType,
+    sender: row.sender,
+    receiver: row.receiver,
+    topic: row.topic,
+    payload: JSON.parse(row.payload),
+    headers: row.headers ? JSON.parse(row.headers) : null,
+    correlationId: row.correlation_id,
+    status: row.status as AgentMessageRecord['status'],
+    createdAt: row.created_at,
+    deliveredAt: row.delivered_at,
+    readAt: row.read_at,
+  }));
+}
+
+/**
+ * List pending agent messages for a receiver
+ */
+export function listPendingMessagesForAgent(receiver: string, limit = 50): AgentMessageRecord[] {
+  return listAgentMessages({
+    receiver,
+    status: 'pending',
+    limit,
+  });
+}
+
+/**
+ * Delete old agent messages
+ */
+export function deleteOldAgentMessages(olderThan: Date): number {
+  const olderThanStr = olderThan.toISOString();
+  const result = db.prepare('DELETE FROM agent_messages WHERE created_at < ?').run(olderThanStr);
+  return result.changes;
+}
+
+// ===== E3: Schedule Operations =====
+
+import type { Schedule, ScheduleLog, ScheduleStatus } from './types.js';
+
+/**
+ * Create a schedule
+ */
+export function createSchedule(schedule: Schedule): void {
+  const stmt = db.prepare(`
+    INSERT INTO schedules (id, project_id, name, description, cron_expression, task_type, command, skill_name, skill_command, skill_args, message, enabled, last_run, next_run, run_count, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    schedule.id,
+    schedule.projectId,
+    schedule.name,
+    schedule.description ?? null,
+    schedule.cronExpression,
+    schedule.taskType,
+    schedule.command ?? null,
+    schedule.skillName ?? null,
+    schedule.skillCommand ?? null,
+    schedule.skillArgs ? JSON.stringify(schedule.skillArgs) : null,
+    schedule.message ?? null,
+    schedule.enabled ? 1 : 0,
+    schedule.lastRun ?? null,
+    schedule.nextRun ?? null,
+    schedule.runCount,
+    schedule.createdAt,
+    schedule.updatedAt
+  );
+}
+
+/**
+ * Get a schedule by ID
+ */
+export function getSchedule(id: string): Schedule | null {
+  const row = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as
+    | {
+        id: string;
+        project_id: string;
+        name: string;
+        description: string | null;
+        cron_expression: string;
+        task_type: string;
+        command: string | null;
+        skill_name: string | null;
+        skill_command: string | null;
+        skill_args: string | null;
+        message: string | null;
+        enabled: number;
+        last_run: string | null;
+        next_run: string | null;
+        run_count: number;
+        created_at: string;
+        updated_at: string;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    description: row.description ?? undefined,
+    cronExpression: row.cron_expression,
+    taskType: row.task_type as Schedule['taskType'],
+    command: row.command ?? undefined,
+    skillName: row.skill_name ?? undefined,
+    skillCommand: row.skill_command ?? undefined,
+    skillArgs: row.skill_args ? JSON.parse(row.skill_args) : undefined,
+    message: row.message ?? undefined,
+    enabled: row.enabled === 1,
+    lastRun: row.last_run ?? undefined,
+    nextRun: row.next_run ?? undefined,
+    runCount: row.run_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Update a schedule
+ */
+export function updateSchedule(schedule: Partial<Schedule> & { id: string }): void {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (schedule.name !== undefined) {
+    fields.push('name = ?');
+    values.push(schedule.name);
+  }
+  if (schedule.description !== undefined) {
+    fields.push('description = ?');
+    values.push(schedule.description);
+  }
+  if (schedule.cronExpression !== undefined) {
+    fields.push('cron_expression = ?');
+    values.push(schedule.cronExpression);
+  }
+  if (schedule.taskType !== undefined) {
+    fields.push('task_type = ?');
+    values.push(schedule.taskType);
+  }
+  if (schedule.command !== undefined) {
+    fields.push('command = ?');
+    values.push(schedule.command);
+  }
+  if (schedule.skillName !== undefined) {
+    fields.push('skill_name = ?');
+    values.push(schedule.skillName);
+  }
+  if (schedule.skillCommand !== undefined) {
+    fields.push('skill_command = ?');
+    values.push(schedule.skillCommand);
+  }
+  if (schedule.skillArgs !== undefined) {
+    fields.push('skill_args = ?');
+    values.push(JSON.stringify(schedule.skillArgs));
+  }
+  if (schedule.message !== undefined) {
+    fields.push('message = ?');
+    values.push(schedule.message);
+  }
+  if (schedule.enabled !== undefined) {
+    fields.push('enabled = ?');
+    values.push(schedule.enabled ? 1 : 0);
+  }
+  if (schedule.lastRun !== undefined) {
+    fields.push('last_run = ?');
+    values.push(schedule.lastRun);
+  }
+  if (schedule.nextRun !== undefined) {
+    fields.push('next_run = ?');
+    values.push(schedule.nextRun);
+  }
+  if (schedule.runCount !== undefined) {
+    fields.push('run_count = ?');
+    values.push(schedule.runCount);
+  }
+  if (schedule.updatedAt !== undefined) {
+    fields.push('updated_at = ?');
+    values.push(schedule.updatedAt);
+  }
+
+  if (fields.length === 0) return;
+
+  values.push(schedule.id);
+
+  db.prepare(`UPDATE schedules SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+/**
+ * Delete a schedule and its logs
+ */
+export function deleteSchedule(id: string): void {
+  // Delete associated logs first (foreign key constraint)
+  db.prepare('DELETE FROM schedule_logs WHERE schedule_id = ?').run(id);
+  db.prepare('DELETE FROM schedules WHERE id = ?').run(id);
+}
+
+/**
+ * List all schedules
+ */
+export function listAllSchedules(): Schedule[] {
+  const rows = db.prepare('SELECT * FROM schedules ORDER BY created_at DESC').all() as Array<{
+    id: string;
+    project_id: string;
+    name: string;
+    description: string | null;
+    cron_expression: string;
+    task_type: string;
+    command: string | null;
+    skill_name: string | null;
+    skill_command: string | null;
+    skill_args: string | null;
+    message: string | null;
+    enabled: number;
+    last_run: string | null;
+    next_run: string | null;
+    run_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    description: row.description ?? undefined,
+    cronExpression: row.cron_expression,
+    taskType: row.task_type as Schedule['taskType'],
+    command: row.command ?? undefined,
+    skillName: row.skill_name ?? undefined,
+    skillCommand: row.skill_command ?? undefined,
+    skillArgs: row.skill_args ? JSON.parse(row.skill_args) : undefined,
+    message: row.message ?? undefined,
+    enabled: row.enabled === 1,
+    lastRun: row.last_run ?? undefined,
+    nextRun: row.next_run ?? undefined,
+    runCount: row.run_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/**
+ * List schedules for a project
+ */
+export function listSchedulesForProject(projectId: string): Schedule[] {
+  const rows = db
+    .prepare('SELECT * FROM schedules WHERE project_id = ? ORDER BY created_at DESC')
+    .all(projectId) as Array<{
+    id: string;
+    project_id: string;
+    name: string;
+    description: string | null;
+    cron_expression: string;
+    task_type: string;
+    command: string | null;
+    skill_name: string | null;
+    skill_command: string | null;
+    skill_args: string | null;
+    message: string | null;
+    enabled: number;
+    last_run: string | null;
+    next_run: string | null;
+    run_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    description: row.description ?? undefined,
+    cronExpression: row.cron_expression,
+    taskType: row.task_type as Schedule['taskType'],
+    command: row.command ?? undefined,
+    skillName: row.skill_name ?? undefined,
+    skillCommand: row.skill_command ?? undefined,
+    skillArgs: row.skill_args ? JSON.parse(row.skill_args) : undefined,
+    message: row.message ?? undefined,
+    enabled: row.enabled === 1,
+    lastRun: row.last_run ?? undefined,
+    nextRun: row.next_run ?? undefined,
+    runCount: row.run_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/**
+ * List schedules (alias for listAllSchedules)
+ */
+export function listSchedules(): Schedule[] {
+  return listAllSchedules();
+}
+
+/**
+ * Get schedules for project (alias for listSchedulesForProject)
+ */
+export function getSchedulesForProject(projectId: string): Schedule[] {
+  return listSchedulesForProject(projectId);
+}
+
+/**
+ * List enabled schedules
+ */
+export function listEnabledSchedules(): Schedule[] {
+  const rows = db
+    .prepare('SELECT * FROM schedules WHERE enabled = 1 ORDER BY next_run ASC')
+    .all() as Array<{
+    id: string;
+    project_id: string;
+    name: string;
+    description: string | null;
+    cron_expression: string;
+    task_type: string;
+    command: string | null;
+    skill_name: string | null;
+    skill_command: string | null;
+    skill_args: string | null;
+    message: string | null;
+    enabled: number;
+    last_run: string | null;
+    next_run: string | null;
+    run_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    description: row.description ?? undefined,
+    cronExpression: row.cron_expression,
+    taskType: row.task_type as Schedule['taskType'],
+    command: row.command ?? undefined,
+    skillName: row.skill_name ?? undefined,
+    skillCommand: row.skill_command ?? undefined,
+    skillArgs: row.skill_args ? JSON.parse(row.skill_args) : undefined,
+    message: row.message ?? undefined,
+    enabled: row.enabled === 1,
+    lastRun: row.last_run ?? undefined,
+    nextRun: row.next_run ?? undefined,
+    runCount: row.run_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/**
+ * Create a schedule log
+ */
+export function createScheduleLog(log: Omit<ScheduleLog, 'id'> & { id: string }): void {
+  const stmt = db.prepare(`
+    INSERT INTO schedule_logs (id, schedule_id, status, started_at, completed_at, output, error, duration)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    log.id,
+    log.scheduleId,
+    log.status,
+    log.startedAt,
+    log.completedAt ?? null,
+    log.output ?? null,
+    log.error ?? null,
+    log.duration ?? null
+  );
+}
+
+/**
+ * Update a schedule log
+ */
+export function updateScheduleLog(log: Partial<ScheduleLog> & { id: string }): void {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (log.status !== undefined) {
+    fields.push('status = ?');
+    values.push(log.status);
+  }
+  if (log.completedAt !== undefined) {
+    fields.push('completed_at = ?');
+    values.push(log.completedAt);
+  }
+  if (log.output !== undefined) {
+    fields.push('output = ?');
+    values.push(log.output);
+  }
+  if (log.error !== undefined) {
+    fields.push('error = ?');
+    values.push(log.error);
+  }
+  if (log.duration !== undefined) {
+    fields.push('duration = ?');
+    values.push(log.duration);
+  }
+
+  if (fields.length === 0) return;
+
+  values.push(log.id);
+
+  db.prepare(`UPDATE schedule_logs SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+/**
+ * Get schedule logs for a schedule
+ */
+export function getScheduleLogs(scheduleId: string, limit = 50): ScheduleLog[] {
+  const rows = db
+    .prepare('SELECT * FROM schedule_logs WHERE schedule_id = ? ORDER BY started_at DESC LIMIT ?')
+    .all(scheduleId, limit) as Array<{
+    id: string;
+    schedule_id: string;
+    status: string;
+    started_at: string;
+    completed_at: string | null;
+    output: string | null;
+    error: string | null;
+    duration: number | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    scheduleId: row.schedule_id,
+    status: row.status as ScheduleStatus,
+    startedAt: row.started_at,
+    completedAt: row.completed_at ?? undefined,
+    output: row.output ?? undefined,
+    error: row.error ?? undefined,
+    duration: row.duration ?? undefined,
+  }));
+}
+
+/**
+ * List schedule logs
+ */
+export function listScheduleLogs(scheduleId: string): ScheduleLog[] {
+  return getScheduleLogs(scheduleId, 100);
+}
+
+/**
+ * Get the latest schedule log
+ */
+export function getLatestScheduleLog(scheduleId: string): ScheduleLog | null {
+  const row = db
+    .prepare('SELECT * FROM schedule_logs WHERE schedule_id = ? ORDER BY started_at DESC LIMIT 1')
+    .get(scheduleId) as
+    | {
+        id: string;
+        schedule_id: string;
+        status: string;
+        started_at: string;
+        completed_at: string | null;
+        output: string | null;
+        error: string | null;
+        duration: number | null;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    scheduleId: row.schedule_id,
+    status: row.status as ScheduleStatus,
+    startedAt: row.started_at,
+    completedAt: row.completed_at ?? undefined,
+    output: row.output ?? undefined,
+    error: row.error ?? undefined,
+    duration: row.duration ?? undefined,
+  };
 }

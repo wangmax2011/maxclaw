@@ -26,6 +26,11 @@ export const DEFAULT_CONFIG: MaxClawConfig = {
     timeout: 300000, // 5 minutes
   },
   dataDir: DATA_DIR,
+  ai: {
+    summaryEnabled: true,
+    summaryModel: 'claude-3-sonnet-20240229',
+    // apiKey is not set by default - use ANTHROPIC_API_KEY env var
+  },
 };
 
 export function ensureDataDir(): void {

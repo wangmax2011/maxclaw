@@ -1,0 +1,33 @@
+name: react-app
+version: 1.0.0
+description: React application template with Vite
+author: MaxClaw
+variables:
+  - name: project_name
+    description: Project name
+    required: true
+  - name: author
+    description: Author name
+    default: ""
+  - name: description
+    description: Project description
+    default: "A React application"
+dependencies:
+  npm:
+    - react
+    - react-dom
+    - vite
+    - "@types/react"
+    - "@types/react-dom"
+    - "@vitejs/plugin-react"
+    - typescript
+gitignore:
+  - node_modules/
+  - dist/
+  - .env
+  - .env.local
+  - "*.log"
+  - coverage/
+  - .DS_Store
+  - "*.local"
+postInstall: []

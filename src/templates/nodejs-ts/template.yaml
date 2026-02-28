@@ -1,0 +1,28 @@
+name: nodejs-ts
+version: 1.0.0
+description: Node.js + TypeScript project template
+author: MaxClaw
+variables:
+  - name: project_name
+    description: Project name
+    required: true
+  - name: author
+    description: Author name
+    default: ""
+  - name: description
+    description: Project description
+    default: "A Node.js TypeScript project"
+dependencies:
+  npm:
+    - typescript
+    - "@types/node"
+    - tsx
+gitignore:
+  - node_modules/
+  - dist/
+  - .env
+  - .env.local
+  - "*.log"
+  - coverage/
+  - .DS_Store
+postInstall: []
