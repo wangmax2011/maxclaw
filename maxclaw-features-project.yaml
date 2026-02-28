@@ -1,0 +1,384 @@
+# MaxClaw 功能增强项目模板
+# 生成时间: 2026-02-28
+# 这是 BMAD (Brainy Multi-Agent Director) 工作流的输入文件
+
+project:
+  name: "MaxClaw 功能增强"
+  description: |
+    为 MaxClaw 个人项目助理添加 Skills 插件系统、会话摘要、
+    定时任务、GitHub/Notion 集成等一系列增强功能
+  type: enhancement
+  language: zh-CN
+
+# 技术栈
+stack:
+  language: TypeScript
+  runtime: Node.js 20+
+  database: SQLite (better-sqlite3)
+  cli_framework: Commander.js
+  logger: Pino
+  existing_dependencies:
+    - cron-parser (已安装，待使用)
+    - better-sqlite3
+    - commander
+    - pino
+    - yaml
+    - vitest
+
+# 项目约束
+constraints:
+  - 保持代码简洁可理解，遵循现有 NanoClaw 架构
+  - 所有数据本地存储，无需云服务
+  - 单进程运行，轻量级
+  - 向下兼容现有功能
+  - 完善的 TypeScript 类型定义
+  - 全面的测试覆盖（单元测试 + 集成测试）
+
+# 成功标准
+success_criteria:
+  - Skills 系统可动态加载/卸载插件
+  - 会话结束后自动生成 AI 摘要
+  - 定时任务准确触发并执行
+  - GitHub 集成可获取 repo 信息和 issues
+  - 所有新功能都有完整测试
+  - 现有功能不受影响
+
+# === Phase 1: 核心体验增强 ===
+
+epics:
+  - id: E1
+    title: Skills 插件系统
+    description: |
+      实现可插拔的 Skills 机制，让用户可以动态添加新功能，
+      无需修改核心代码。支持内置 skills 和外部 skills 目录。
+    priority: P0
+    acceptance_criteria:
+      - 定义 Skill 接口规范（manifest 格式）
+      - 实现 SkillLoader 动态加载器
+      - 支持 ~/.maxclaw/skills/ 目录加载外部 skills
+      - 内置 skills：hello-world, project-stats
+      - Skill 可注册 CLI 命令
+      - Skill 可访问数据库和配置
+      - Skill 热重载（开发模式）
+    technical_notes: |
+      - 参考 VS Code extensions 和 Claude Code skills 设计
+      - 使用 ES Module 动态导入
+      - Skill manifest 包含: name, version, commands, hooks, permissions
+
+  - id: E2
+    title: 会话摘要自动生成
+    description: |
+      会话结束后，自动使用 AI 总结对话内容，提取关键决策、
+      任务、代码变更，并生成结构化的会话报告。
+    priority: P0
+    acceptance_criteria:
+      - 监听会话结束事件
+      - 读取会话日志文件（Claude Code 的 logs/）
+      - 调用 AI API 生成摘要
+      - 提取：完成的任务、遇到的错误、做出的决策、生成的代码
+      - 将摘要存储到数据库 Sessions.summary 字段
+      - 生成 markdown 格式的会话报告文件
+      - 支持配置摘要生成策略（always/never/on-demand）
+    technical_notes: |
+      - 需要读取 ~/.claude/projects/{project}/logs/ 下的日志
+      - 使用环境变量中的 ANTHROPIC_API_KEY
+      - 摘要 prompt 需要精心设计以提取结构化信息
+    dependencies:
+      - E1 (可能需要 Skill 机制触发)
+
+  - id: E3
+    title: 定时任务调度系统
+    description: |
+      使用已安装的 cron-parser，实现项目级别的定时任务。
+      支持定时备份、定时提醒、定时执行自定义命令等。
+    priority: P1
+    acceptance_criteria:
+      - 任务存储：数据库 Schedules 表
+      - 支持 cron 表达式和简化格式（"daily", "weekly"）
+      - 任务类型：reminder, backup, custom-command
+      - 后台调度器（使用 setTimeout 循环）
+      - CLI 命令：schedule add/list/remove/run
+      - 任务执行日志记录
+      - 支持项目级和全局任务
+    technical_notes: |
+      - 依赖已安装: cron-parser
+      - 使用 node-cron 或自建调度器
+      - 注意：Claude Code 是单进程，需要非阻塞调度
+    dependencies:
+      - E1 (任务可作为 Skill 实现)
+
+# === Phase 2: 集成与连接 ===
+
+  - id: E4
+    title: GitHub 集成
+    description: |
+      将 MaxClaw 项目与 GitHub 仓库关联，实现 issues、PRs、
+      commits 的同步和跟踪。
+    priority: P1
+    acceptance_criteria:
+      - 项目配置中添加 github.repo 字段
+      - CLI 命令：github sync, github issues, github prs
+      - 同步 issues 列表到本地数据库
+      - 显示与当前分支关联的 open issues
+      - 创建 GitHub issue 的快捷命令
+      - 会话摘要可推送到 GitHub issue/discussion
+      - 支持 GITHUB_TOKEN 环境变量认证
+    technical_notes: |
+      - 使用 GitHub REST API (octokit/rest.js)
+      - 缓存 API 响应避免限流
+      - 支持 GitHub Enterprise
+    dependencies:
+      - E3 (可能需要定时同步)
+
+  - id: E5
+    title: Notion 集成
+    description: |
+      将项目文档、会话摘要同步到 Notion 工作区，
+      实现知识库自动维护。
+    priority: P2
+    acceptance_criteria:
+      - 支持 NOTION_TOKEN 和 NOTION_DATABASE_ID 配置
+      - 会话摘要自动发布到 Notion
+      - 项目元数据同步（技术栈、描述等）
+      - 支持选择同步内容类型
+      - 手动触发同步命令
+    technical_notes: |
+      - 使用 Notion API (notion-client)
+      - 需要用户创建 Integration 并授权
+    dependencies:
+      - E2 (依赖会话摘要)
+
+  - id: E6
+    title: 飞书/微信通知
+    description: |
+      关键事件（任务完成、会话结束、错误告警）的实时推送通知。
+    priority: P2
+    acceptance_criteria:
+      - 支持飞书 webhook 机器人
+      - 支持企业微信 webhook
+      - 可配置通知级别和触发条件
+      - 通知模板自定义
+      - 会话摘要完成后推送
+    technical_notes: |
+      - 飞书：使用 webhook URL POST 请求
+      - 微信：企业微信群机器人
+    dependencies:
+      - E2 (依赖会话摘要事件)
+
+# === Phase 3: 智能化增强 ===
+
+  - id: E7
+    title: 智能任务分配
+    description: |
+      改进现有的团队任务分配，基于成员专业领域、
+      当前工作负载自动推荐最佳执行者。
+    priority: P2
+    acceptance_criteria:
+      - 团队成员添加 expertise 字段
+      - 任务添加 type 和 required_skills 字段
+      - 基于技能匹配度评分
+      - 考虑成员当前任务数量（负载均衡）
+      - 推荐结果排序展示
+      - 可手动覆盖自动推荐
+    technical_notes: |
+      - 扩展 TeamMembers 表结构
+      - 算法：加权匹配 + 负载因子
+    dependencies: []
+
+  - id: E8
+    title: 跨项目代码搜索
+    description: |
+      在多个已注册项目中同时搜索代码、文件名、函数定义。
+    priority: P2
+    acceptance_criteria:
+      - CLI 命令：search <query> [--projects]
+      - 支持 ripgrep 风格的搜索
+      - 结果聚合展示（按项目分组）
+      - 支持正则表达式
+      - 文件类型过滤
+      - 搜索结果缓存
+    technical_notes: |
+      - 使用 rg (ripgrep) 子进程或 Node.js 实现
+      - 异步并行搜索多个项目
+      - 限制结果数量避免过多输出
+
+  - id: E9
+    title: 项目模板/脚手架
+    description: |
+      快速创建标准化的项目结构，内置常见技术栈模板。
+    priority: P2
+    acceptance_criteria:
+      - CLI 命令：template list/use
+      - 内置模板：nodejs-ts, python, react-app, nextjs
+      - 支持自定义模板目录 ~/.maxclaw/templates/
+      - 模板变量替换（{{project_name}} 等）
+      - 自动初始化 git
+      - 创建后自动注册到 MaxClaw
+    technical_notes: |
+      - 模板使用占位符系统
+      - 参考 cookiecutter 设计
+
+# === Phase 4: 团队协作（可选/未来） ===
+
+  - id: E10
+    title: Agent 间通信协议
+    description: |
+      定义标准化的 Agent 消息格式，支持复杂的工作流编排。
+    priority: P3
+    acceptance_criteria:
+      - 定义 Message 接口（type, sender, payload, timestamp）
+      - 支持消息类型：task, query, response, notification
+      - 消息持久化到数据库
+      - 实现消息总线/队列
+      - 支持同步和异步消息
+    technical_notes: |
+      - 参考 Actor 模型设计
+      - 可能需要事件驱动架构
+
+# 数据模型扩展
+schema_changes:
+  - table: Schedules
+    description: 定时任务表
+    fields:
+      - id: INTEGER PRIMARY KEY
+      - project_id: INTEGER FOREIGN KEY
+      - name: TEXT
+      - cron_expression: TEXT
+      - task_type: TEXT (reminder|backup|command)
+      - command: TEXT
+      - enabled: BOOLEAN
+      - last_run: TIMESTAMP
+      - next_run: TIMESTAMP
+      - created_at: TIMESTAMP
+
+  - table: Skills
+    description: 已加载的 Skills
+    fields:
+      - id: INTEGER PRIMARY KEY
+      - name: TEXT UNIQUE
+      - version: TEXT
+      - source: TEXT (builtin|external)
+      - path: TEXT
+      - enabled: BOOLEAN
+      - config: JSON
+
+  - table: TeamMembers
+    changes:
+      - add: expertise: JSON (['frontend', 'backend', 'ai'])
+      - add: max_concurrent_tasks: INTEGER
+
+  - table: Projects
+    changes:
+      - add: github_repo: TEXT
+      - add: notion_page_id: TEXT
+      - add: notification_webhook: TEXT
+
+# 配置扩展
+config_options:
+  - key: ai.summary_enabled
+    default: true
+    description: 是否自动生成会话摘要
+
+  - key: ai.summary_model
+    default: claude-3-sonnet-20241022
+    description: 用于生成摘要的 AI 模型
+
+  - key: github.token
+    default: null
+    description: GitHub Personal Access Token
+
+  - key: notion.token
+    default: null
+    description: Notion Integration Token
+
+  - key: notification.webhook_url
+    default: null
+    description: 飞书/微信 webhook URL
+
+  - key: skills.external_dir
+    default: ~/.maxclaw/skills/
+    description: 外部 skills 加载目录
+
+# 执行计划
+execution_plan:
+  # 第一批次：基础架构（可并行）
+  batch_1:
+    - E1 (Skills 系统) - 其他功能依赖
+    - E7 (智能任务分配) - 独立
+
+  # 第二批次：核心功能（依赖 E1）
+  batch_2:
+    - E2 (会话摘要) - 依赖 E1
+    - E3 (定时任务) - 依赖 E1
+
+  # 第三批次：集成（依赖 E2）
+  batch_3:
+    - E4 (GitHub) - 依赖 E3 可选
+    - E6 (通知) - 依赖 E2
+    - E5 (Notion) - 依赖 E2
+
+  # 第四批次：增强功能（独立）
+  batch_4:
+    - E8 (跨项目搜索) - 独立
+    - E9 (项目模板) - 独立
+
+  # 第五批次：高级功能（可选）
+  batch_5:
+    - E10 (Agent 通信) - 可选
+
+# BMAD Loop 配置
+loop_config:
+  # 每个 Epic 分配的代理数量
+  agents_per_epic: 2
+
+  # 最大并发 Epics
+  max_concurrent_epics: 2
+
+  # 速率限制处理
+  rate_limit_handling:
+    ai_api_calls: 50  # 每分钟 AI API 调用次数
+    github_api: 60    # 每分钟 GitHub API 调用次数
+
+  # 审查要求
+  code_review:
+    required: true
+    reviewer_agents: ["code-reviewer"]
+
+  # 测试要求
+  testing:
+    unit_tests_required: true
+    integration_tests_required: true
+    coverage_threshold: 80
+
+  # 文档要求
+  documentation:
+    update_readme: true
+    inline_comments: true
+    changelog_required: true
+
+# 风险管理
+risks:
+  - id: R1
+    description: AI API 调用失败或限流
+    mitigation: 实现指数退避重试，支持离线模式
+
+  - id: R2
+    description: Skills 系统安全性（加载外部代码）
+    mitigation: Skills 运行沙箱，权限白名单机制
+
+  - id: R3
+    description: 数据库迁移兼容性
+    mitigation: 使用版本化迁移，支持回滚
+
+  - id: R4
+    description: 现有功能回归
+    mitigation: 全面的回归测试，保持向后兼容
+
+# 输出产物
+artifacts:
+  - 更新的源代码文件（TypeScript）
+  - 数据库迁移脚本
+  - 测试文件（*.test.ts）
+  - 示例 Skills 代码
+  - 更新的 README.md 文档
+  - 架构设计文档（如有重大变更）

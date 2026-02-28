@@ -235,27 +235,6 @@ function runMigrations(database: Database.Database): void {
     database.exec(`ALTER TABLE projects ADD COLUMN notification_level TEXT DEFAULT 'info';`);
     logger.debug('Migration: Added notification_level column to projects');
   }
-  // E4: GitHub Integration - Add github_repo and github_token columns to projects
-  const hasGithubRepo = projectsColumns.some((col) => col.name === 'github_repo');
-  const hasGithubToken = projectsColumns.some((col) => col.name === 'github_token');
-
-  if (!hasGithubRepo) {
-    database.exec(`ALTER TABLE projects ADD COLUMN github_repo TEXT;`);
-    logger.debug('Migration: Added github_repo column to projects');
-  }
-
-  if (!hasGithubToken) {
-    database.exec(`ALTER TABLE projects ADD COLUMN github_token TEXT;`);
-    logger.debug('Migration: Added github_token column to projects');
-  }
-
-  // E5: Notion Integration - Add notion_page_id column to projects
-  const hasNotionPageId = projectsColumns.some((col) => col.name === 'notion_page_id');
-
-  if (!hasNotionPageId) {
-    database.exec(`ALTER TABLE projects ADD COLUMN notion_page_id TEXT;`);
-    logger.debug('Migration: Added notion_page_id column to projects');
-  }
 
   // E10: Agent Protocol - Check for agent_messages table
   const tableNames = database
@@ -384,7 +363,6 @@ export function getProject(id: string): Project | null {
     techStack: JSON.parse(row.tech_stack),
     discoveredAt: row.discovered_at,
     lastAccessed: row.last_accessed ?? undefined,
-    notionPageId: row.notion_page_id ?? undefined,
   };
 }
 
@@ -398,7 +376,6 @@ export function getProjectByPath(path: string): Project | null {
         tech_stack: string;
         discovered_at: string;
         last_accessed: string | null;
-        notion_page_id: string | null;
       }
     | undefined;
 
@@ -412,7 +389,6 @@ export function getProjectByPath(path: string): Project | null {
     techStack: JSON.parse(row.tech_stack),
     discoveredAt: row.discovered_at,
     lastAccessed: row.last_accessed ?? undefined,
-    notionPageId: row.notion_page_id ?? undefined,
   };
 }
 
@@ -435,10 +411,6 @@ export function updateProject(project: Partial<Project> & { id: string }): void 
   if (project.lastAccessed !== undefined) {
     fields.push('last_accessed = ?');
     values.push(project.lastAccessed);
-  }
-  if (project.notionPageId !== undefined) {
-    fields.push('notion_page_id = ?');
-    values.push(project.notionPageId);
   }
 
   if (fields.length === 0) return;
@@ -463,7 +435,6 @@ export function listProjects(): Project[] {
     tech_stack: string;
     discovered_at: string;
     last_accessed: string | null;
-    notion_page_id: string | null;
   }>;
 
   return rows.map((row) => ({
@@ -474,7 +445,6 @@ export function listProjects(): Project[] {
     techStack: JSON.parse(row.tech_stack),
     discoveredAt: row.discovered_at,
     lastAccessed: row.last_accessed ?? undefined,
-    notionPageId: row.notion_page_id ?? undefined,
   }));
 }
 

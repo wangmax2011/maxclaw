@@ -1,0 +1,133 @@
+---
+# Ralph BMAD Loop - Web Dashboard Project
+# A real-time web dashboard for monitoring Ralph BMAD Loop progress
+
+template_version: "1.0.0"
+
+project_name: "ralph-bmad-dashboard"
+description: |
+  A lightweight web dashboard for real-time monitoring of Ralph BMAD Loop
+  progress. Provides iteration tracking, phase visualization, agent activity
+  logs, and rate limit alerts via a simple web interface.
+
+project_type: web-app
+
+tech_stack:
+  preferred_language: Python
+  preferred_framework: Flask
+  database: SQLite
+  infrastructure: Localhost (development)
+
+constraints:
+  timeline: "1 day"
+  budget: "$0 (open source)"
+  team_size: 1
+
+goals:
+  primary: |
+    Build a lightweight web dashboard that displays Ralph BMAD Loop
+    progress in real-time by reading status.yaml and log files.
+
+  secondary:
+    - "Display current iteration and max iterations"
+    - "Show current phase with visual progress indicator"
+    - "List active agents and their recent activities"
+    - "Display rate limit status and retry information"
+    - "Show project completion percentage"
+    - "Auto-refresh every 5 seconds"
+    - "Mobile-responsive design"
+
+success_criteria:
+  - id: SC-001
+    description: "Dashboard server runs and serves web interface"
+    measurable: "Flask server starts on configurable port, accessible via browser"
+
+  - id: SC-002
+    description: "Real-time progress display"
+    measurable: "Shows iteration X/Y, current phase, completion percentage"
+
+  - id: SC-003
+    description: "Agent activity visible"
+    measurable: "Displays which BMAD agents are active and their recent actions"
+
+  - id: SC-004
+    description: "Rate limit status shown"
+    measurable: "Displays current retry status, wait times if rate limited"
+
+  - id: SC-005
+    description: "Auto-refresh works"
+    measurable: "Page updates every 5 seconds without manual refresh"
+
+  - id: SC-006
+    description: "Mobile responsive"
+    measurable: "Dashboard usable on phone, tablet, and desktop screens"
+
+requirements:
+  functional:
+    - "Read and parse status.yaml from _bmad-output/{project}/"
+    - "Read .rate-limit-history.log for rate limit status"
+    - "Read iteration logs from _bmad-output/{project}/logs/"
+    - "Serve web dashboard on configurable port (default: 8080)"
+    - "Auto-refresh via JavaScript or Server-Sent Events"
+    - "Display project name, status, phase"
+    - "Show progress bar for iteration count"
+    - "List all phases with current phase highlighted"
+    - "Display agent roster and current active agents"
+    - "Show success criteria checklist"
+
+  non_functional:
+    - "Dashboard optional - loop works without it"
+    - "Localhost-only by default (security)"
+    - "Lightweight - minimal CPU/memory overhead"
+    - "No authentication needed for local use"
+    - "Graceful degradation if files missing"
+
+out_of_scope:
+  - "Authentication/authorization system"
+  - "Remote access (for now, localhost only)"
+  - "Historical data persistence (SQLite optional)"
+  - "Email/webhook notifications"
+  - "Multi-project dashboard (v2 feature)"
+
+references:
+  existing_codebase: "/Volumes/zhitai-2/gitrepo/github/ralph-bmad-loop"
+  design_assets: null
+  api_documentation: null
+  competitor_analysis: null
+
+loop_config:
+  max_iterations: 30
+  mode: adaptive
+
+  agents:
+    enabled: all
+
+  auto_approve:
+    workflow_selection: true
+    phase_transitions: true
+    minor_code_changes: true
+    major_rewrites: false
+
+  notifications:
+    on_phase_complete: true
+    on_iteration_complete: false
+    on_blocking_issue: true
+
+  rate_limit_handling:
+    enabled: true
+    max_retries: 10
+    backoff_strategy: exponential
+    backoff_base_seconds: 60
+    backoff_max_seconds: 3600
+    save_checkpoints: true
+    notify_on_pause: true
+
+completion_promise: "RALPH_BMAD_COMPLETE"
+
+output:
+  directory: "_bmad-output"
+  artifacts:
+    - architecture
+    - code
+    - tests
+    - documentation

@@ -9,7 +9,6 @@ export interface Project {
   discoveredAt: string;
   lastAccessed?: string;
   metadata?: Record<string, unknown>;
-  notionPageId?: string; // E5: Notion Integration - associated Notion page ID
   // E6: Notification configuration
   notificationWebhook?: string;
   notificationType?: NotificationType;

@@ -2,6 +2,8 @@
 
 Personal project assistant for managing Claude Code sessions across local projects.
 
+> **🔒 100% Local-First**: All data stored locally. No cloud services, no remote integrations, no external dependencies.
+
 ## Features
 
 ### Core Features
@@ -27,12 +29,14 @@ maxclaw skill create-template <name>        # Create a new skill template
 Built-in skills include `hello-world` and `project-stats`. Place custom skills in `~/.maxclaw/skills/`.
 
 #### 📝 Session Summary
-Automatically generate AI-powered session summaries:
+Automatically generate AI-powered session summaries (optional, requires ANTHROPIC_API_KEY):
 ```bash
 maxclaw session end --summary "Fixed auth bug"    # End with summary
 maxclaw session list                              # View all sessions
 maxclaw session logs <session-id>                 # View session logs
 ```
+
+AI summary generation is **completely optional**. If no API key is provided, MaxClaw works fully with manual summaries.
 
 #### ⏰ Scheduled Tasks
 Schedule recurring tasks with cron expressions:
@@ -43,33 +47,7 @@ maxclaw schedule run <schedule-id>              # Run immediately
 maxclaw schedule remove <schedule-id>
 ```
 
-#### 🔗 GitHub Integration
-Sync with GitHub repositories:
-```bash
-maxclaw github sync my-project                    # Sync issues and PRs
-maxclaw github issues my-project --status open    # List open issues
-maxclaw github prs my-project                     # List pull requests
-maxclaw github issue create my-project --title "Bug" --body "Details"
-```
-
-Configure with `GITHUB_TOKEN` environment variable.
-
-#### 📋 Notion Integration
-Sync project knowledge to Notion:
-```bash
-maxclaw notion sync my-project                    # Sync to Notion
-```
-
-Configure with `NOTION_TOKEN` and `NOTION_DATABASE_ID` environment variables.
-
-#### 🔔 Notifications
-Real-time notifications via Feishu/WeChat webhooks:
-```bash
-maxclaw notify test my-project                    # Test notification
-maxclaw notify configure my-project --webhook <url>
-```
-
-Configure notification triggers for session events, task completion, and errors.
+All tasks run locally on your machine.
 
 #### 🔍 Cross-Project Code Search
 Search across all registered projects:
@@ -79,7 +57,7 @@ maxclaw search "auth" --projects project-a,project-b
 maxclaw files "*.test.ts"                         # Find files by pattern
 ```
 
-Uses ripgrep for fast searching with regex support.
+Uses ripgrep for fast searching with regex support. No code leaves your machine.
 
 #### 📁 Project Templates
 Quickly scaffold new projects:
@@ -114,22 +92,10 @@ npm link  # Makes `maxclaw` command available globally
 Create `~/.maxclaw/config.yaml`:
 
 ```yaml
-# API Keys (optional)
+# AI Summary (optional - only if you want AI-generated session summaries)
 ai:
   summary_enabled: true
   summary_model: claude-3-sonnet-20241022
-
-github:
-  token: ghp_xxxxxxxxxxxx
-
-notion:
-  token: secret_xxxxxxxx
-  database_id: xxxxxxxx
-
-# Notifications
-notification:
-  webhook_url: https://open.feishu.cn/open-apis/bot/v2/hook/xxxxx
-  level: info  # error, warning, info, success
 
 # Skills
 skills:
@@ -139,24 +105,17 @@ skills:
 ## Environment Variables
 
 ```bash
-# Required for AI summaries
+# Optional: Only needed for AI-generated session summaries
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Required for GitHub integration
-GITHUB_TOKEN=ghp_...
-
-# Required for Notion integration
-NOTION_TOKEN=secret_...
-NOTION_DATABASE_ID=...
-
-# Required for notifications
+# Optional: For webhook notifications (outgoing only)
 FEISHU_WEBHOOK_URL=https://...
 WECHAT_WEBHOOK_URL=https://...
 ```
 
 ## Data Storage
 
-All data is stored locally in `~/.maxclaw/`:
+**All data is stored locally** in `~/.maxclaw/`:
 - `data.db` - SQLite database with projects, sessions, teams, schedules, skills
 - `config.yaml` - User configuration
 - `skills/` - External skill plugins
@@ -164,23 +123,23 @@ All data is stored locally in `~/.maxclaw/`:
 - `projects/<id>/CLAUDE.md` - Per-project memory files
 - `logs/` - Session logs and summaries
 
+**Nothing is sent to any cloud service** (except optional AI summaries if you configure ANTHROPIC_API_KEY).
+
 ## Architecture
 
 Based on [NanoClaw](https://github.com/AnthropicLabs/NanoClaw), enhanced with:
-- Modular skill system for extensibility
-- Agent protocol for multi-agent workflows
-- Database-backed task scheduling
-- External service integrations (GitHub, Notion)
-- Webhook-based notifications
-- Local-first storage with sync options
+- **Modular skill system** for extensibility
+- **Agent protocol** for multi-agent workflows
+- **Database-backed task scheduling** - all local
+- **Webhook-based notifications** - outgoing only, your data stays local
+- **Local-first storage** - SQLite, no external database needed
 
 ## Requirements
 
 - Node.js 20+
 - Claude Code CLI installed
 - Optional: ripgrep (rg) for code search
-- Optional: GitHub token for GitHub integration
-- Optional: Notion integration token for Notion sync
+- Optional: ANTHROPIC_API_KEY for AI session summaries
 
 ## Development
 
@@ -200,6 +159,16 @@ npm run typecheck
 # Lint
 npm run lint
 ```
+
+## Privacy & Security
+
+- ✅ All project data stored locally in SQLite
+- ✅ No telemetry or analytics
+- ✅ No cloud service integrations
+- ✅ No GitHub/Notion/Jira/etc. syncing
+- ✅ Optional AI summaries only send session logs to Anthropic API (if configured)
+- ✅ Skills run with permission-based access control
+- ✅ Your code never leaves your machine
 
 ## License
 
