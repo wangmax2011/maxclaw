@@ -1,0 +1,337 @@
+---
+# MaxClaw CLI Enhancement Project Plan
+# Generated: 2026-02-28
+# Author: Simon
+#
+# BMAD Integration:
+# - This file is the main input for Ralph BMAD Loop
+# - BMAD Master agent drives all other agents (PM, Architect, Dev, TEA, etc.)
+# - Status tracked in _bmad-output/sprint-status.yaml
+# - Autonomous execution until all epics complete
+
+project_name: MaxClaw CLI Enhancement
+project_version: "2.0.0"
+project_description: "Transform MaxClaw into an independent CLI tool that automatically manages Claude Code sessions"
+
+# BMAD Configuration
+bmad:
+  team_lead: "bmad-master"
+  agents_required: ["pm", "architect", "dev", "tea", "analyst", "sm", "tech-writer"]
+  workflows_required: ["create-epics-and-stories", "dev-story", "code-review", "testarch-atdd", "testarch-automate", "finishing-a-development-branch"]
+  status_file: "_bmad-output/sprint-status.yaml"
+  task_file: "_bmad-output/bmad-master-task.md"
+
+# Reference documents
+documents:
+  product_brief: "_bmad/bmm/workflows/1-analysis/product-briefs/maxclaw-cli-enhancement.md"
+  architecture: "_bmad/bmm/workflows/3-solutioning/architecture/decisions/001-daemon-architecture.md"
+
+# Epics organized by sprint
+epics:
+  - id: EPIC-001
+    title: "Daemon/Background Mode"
+    description: |
+      Implement daemon process for background session management.
+      This is the foundation for all automatic session management features.
+    priority: critical
+    sprint: 1
+    status: pending
+    features:
+      - id: FEAT-001-01
+        title: "Daemon Process Core"
+        description: "Create detachable daemon process with IPC server"
+        files_to_create:
+          - "src/daemon/daemon-manager.ts"
+          - "src/daemon/ipc-server.ts"
+          - "src/daemon/process-monitor.ts"
+        cli_commands:
+          - "maxclaw daemon start"
+          - "maxclaw daemon stop"
+          - "maxclaw daemon status"
+
+      - id: FEAT-001-02
+        title: "Session Auto-Recovery"
+        description: "Monitor and recover sessions after daemon restart"
+        files_to_modify:
+          - "src/session-manager.ts"
+          - "src/db.ts"
+        schema_changes:
+          - "Add daemon_instance_id to sessions table"
+          - "Add heartbeat monitoring columns"
+
+      - id: FEAT-001-03
+        title: "PID and Socket Management"
+        description: "Track daemon PID and manage Unix socket"
+        files_to_create:
+          - "src/daemon/pid-manager.ts"
+          - "src/daemon/socket-manager.ts"
+
+  - id: EPIC-002
+    title: "Smart Session Management"
+    description: |
+      Enhance session commands with resume, switch, attach capabilities.
+    priority: critical
+    sprint: 2
+    status: pending
+    features:
+      - id: FEAT-002-01
+        title: "Session Resume"
+        description: "Resume last session for a project or globally"
+        cli_commands:
+          - "maxclaw resume [project]"
+          - "maxclaw resume --last"
+
+      - id: FEAT-002-02
+        title: "Session Switch"
+        description: "Save current session state and start new one"
+        cli_commands:
+          - "maxclaw switch <project>"
+
+      - id: FEAT-002-03
+        title: "Session Attach"
+        description: "Attach to running session"
+        cli_commands:
+          - "maxclaw attach <session-id>"
+
+      - id: FEAT-002-04
+        title: "Enhanced Session List"
+        description: "Show all sessions with filters"
+        cli_commands:
+          - "maxclaw sessions --all"
+          - "maxclaw sessions --active"
+          - "maxclaw sessions --project <name>"
+
+  - id: EPIC-003
+    title: "Workspace System"
+    description: |
+      Enable multi-project workspaces for managing related projects together.
+    priority: high
+    sprint: 3
+    status: pending
+    features:
+      - id: FEAT-003-01
+        title: "Workspace CRUD"
+        description: "Create, list, update, delete workspaces"
+        files_to_create:
+          - "src/workspace-manager.ts"
+        database_tables:
+          - "workspaces"
+          - "workspace_projects"
+        cli_commands:
+          - "maxclaw workspace create <name>"
+          - "maxclaw workspace list"
+          - "maxclaw workspace delete <name>"
+          - "maxclaw workspace add <project>"
+          - "maxclaw workspace remove <project>"
+
+      - id: FEAT-003-02
+        title: "Workspace Activation"
+        description: "Activate workspace context"
+        cli_commands:
+          - "maxclaw workspace activate <name>"
+          - "maxclaw workspace deactivate"
+          - "maxclaw workspace current"
+
+      - id: FEAT-003-03
+        title: "Workspace Sessions"
+        description: "Start sessions with workspace context"
+        cli_commands:
+          - "maxclaw workspace session"
+
+  - id: EPIC-004
+    title: "Configuration Profiles"
+    description: |
+      YAML-based configuration profiles for preset session configurations.
+    priority: high
+    sprint: 3
+    status: pending
+    features:
+      - id: FEAT-004-01
+        title: "Profile Storage"
+        description: "YAML profile storage and loading"
+        files_to_create:
+          - "src/profile-manager.ts"
+        config_file: "~/.maxclaw/profiles.yaml"
+
+      - id: FEAT-004-02
+        title: "Profile Commands"
+        description: "CLI for profile management"
+        cli_commands:
+          - "maxclaw profile list"
+          - "maxclaw profile create <name>"
+          - "maxclaw profile edit <name>"
+          - "maxclaw start --profile <name>"
+
+  - id: EPIC-005
+    title: "Session Persistence"
+    description: |
+      Export, bookmark, and continue sessions from saved state.
+    priority: medium
+    sprint: 4
+    status: pending
+    features:
+      - id: FEAT-005-01
+        title: "Session Export"
+        description: "Export session context to markdown"
+        cli_commands:
+          - "maxclaw session export <id> --format markdown"
+          - "maxclaw session export <id> --format json"
+
+      - id: FEAT-005-02
+        title: "Session Bookmark"
+        description: "Bookmark sessions for easy resume"
+        cli_commands:
+          - "maxclaw bookmark add <session-id> \"message\""
+          - "maxclaw bookmark list"
+          - "maxclaw bookmark resume"
+
+      - id: FEAT-005-03
+        title: "Session Continue"
+        description: "Continue from historical session"
+        cli_commands:
+          - "maxclaw session continue <id>"
+
+  - id: EPIC-006
+    title: "Multi-plexing & Resource Management"
+    description: |
+      Support multiple concurrent sessions and resource limits.
+    priority: medium
+    sprint: 5
+    status: pending
+    features:
+      - id: FEAT-006-01
+        title: "Multi-Session Support"
+        description: "Allow multiple sessions per project"
+        cli_commands:
+          - "maxclaw session start <project> --instance <n>"
+
+      - id: FEAT-006-02
+        title: "Session Groups"
+        description: "Group related sessions"
+        cli_commands:
+          - "maxclaw session group create <name>"
+          - "maxclaw session group add <session-id>"
+          - "maxclaw session group list"
+
+      - id: FEAT-006-03
+        title: "Resource Limits"
+        description: "Configure memory and session limits"
+        cli_commands:
+          - "maxclaw config set memory-limit <size>"
+          - "maxclaw config set max-sessions <count>"
+          - "maxclaw session priority <id> <level>"
+
+  - id: EPIC-007
+    title: "Enhanced Notifications"
+    description: |
+      Desktop notifications, webhooks, and custom hooks.
+    priority: medium
+    sprint: 5
+    status: pending
+    features:
+      - id: FEAT-007-01
+        title: "Desktop Notifications"
+        description: "Native desktop notifications"
+        files_to_modify:
+          - "src/notifier.ts"
+
+      - id: FEAT-007-02
+        title: "Event Hooks"
+        description: "Custom hooks for session events"
+        cli_commands:
+          - "maxclaw hook add <event> \"command\""
+          - "maxclaw hook list"
+          - "maxclaw hook remove <id>"
+
+  - id: EPIC-008
+    title: "TUI Interface"
+    description: |
+      Terminal UI for interactive session and project management.
+    priority: low
+    sprint: 6
+    status: pending
+    features:
+      - id: FEAT-008-01
+        title: "TUI Core"
+        description: "Interactive terminal UI"
+        files_to_create:
+          - "src/tui/index.ts"
+          - "src/tui/screens/dashboard.tsx"
+          - "src/tui/screens/sessions.tsx"
+          - "src/tui/screens/projects.tsx"
+        dependencies:
+          - "ink"
+          - "react"
+        cli_commands:
+          - "maxclaw tui"
+
+# Sprint summary
+sprints:
+  - number: 1
+    name: "Foundation"
+    epics: ["EPIC-001"]
+    duration_weeks: 2
+
+  - number: 2
+    name: "Session Management"
+    epics: ["EPIC-002"]
+    duration_weeks: 2
+
+  - number: 3
+    name: "Workspaces & Profiles"
+    epics: ["EPIC-003", "EPIC-004"]
+    duration_weeks: 2
+
+  - number: 4
+    name: "Persistence"
+    epics: ["EPIC-005"]
+    duration_weeks: 2
+
+  - number: 5
+    name: "Multi-plexing & Notifications"
+    epics: ["EPIC-006", "EPIC-007"]
+    duration_weeks: 2
+
+  - number: 6
+    name: "TUI & Polish"
+    epics: ["EPIC-008"]
+    duration_weeks: 2
+    finish_with: "finishing-a-development-branch"
+
+# Quality gates
+quality_gates:
+  - name: "Unit Tests"
+    requirement: "80%+ code coverage"
+    enforce: true
+
+  - name: "Integration Tests"
+    requirement: "All new features tested"
+    enforce: true
+
+  - name: "Documentation"
+    requirement: "README and CLI help updated"
+    enforce: true
+
+  - name: "BMAD Workflows"
+    requirement: "Workflows updated for new capabilities"
+    enforce: true
+
+# Risk management
+risks:
+  - id: RISK-001
+    description: "Daemon complexity may cause session data loss"
+    probability: medium
+    impact: high
+    mitigation: "SQLite persistence with recovery logic"
+
+  - id: RISK-002
+    description: "IPC latency affects CLI responsiveness"
+    probability: high
+    impact: low
+    mitigation: "Optimize socket communication, cache frequently used data"
+
+  - id: RISK-003
+    description: "Breaking changes to existing commands"
+    probability: low
+    impact: high
+    mitigation: "Maintain backward compatibility, deprecate gracefully"

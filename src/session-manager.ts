@@ -15,9 +15,11 @@ import {
   listSessionsForProject,
   updateProject,
   updateSession,
+  getAllSessions,
+  listSessionsFiltered,
 } from './db.js';
 import { logger } from './logger.js';
-import { Activity, RunningSession, Session } from './types.js';
+import { Activity, RunningSession, Session, SessionContext } from './types.js';
 import { generateSummary, isSummarizationEnabled } from './ai-summarizer.js';
 import { getSessionLogForProject } from './session-logger.js';
 
@@ -405,4 +407,129 @@ export async function regenerateSessionSummary(sessionId: string): Promise<Sessi
   }
 
   return generateSessionSummary(sessionId, project.path);
+}
+
+/**
+ * EPIC-002: Smart Session Management
+ */
+
+/**
+ * Resume the last session for a project or globally
+ */
+export async function resumeSession(projectId?: string): Promise<Session> {
+  let targetProjectId: string | undefined = projectId;
+
+  if (!targetProjectId) {
+    // Get the most recent session across all projects
+    const allSessions = getAllSessions();
+    if (allSessions.length === 0) {
+      throw new Error('No sessions found to resume');
+    }
+
+    // Find the most recent active or recently completed session
+    const lastSession = allSessions[0];
+    targetProjectId = lastSession.projectId;
+    logger.info('Resuming session for project: %s', targetProjectId);
+  }
+
+  const project = getProject(targetProjectId);
+  if (!project) {
+    throw new Error(`Project not found: ${targetProjectId}`);
+  }
+
+  // Check if there's already an active session
+  const activeSessions = listActiveSessions();
+  const existingSession = activeSessions.find((s) => s.projectId === targetProjectId);
+
+  if (existingSession) {
+    logger.warn('Active session already exists for %s', project.name);
+    throw new Error(
+      `Active session already exists for ${project.name}. Use 'maxclaw sessions' to see running sessions.`
+    );
+  }
+
+  // Start a new session for the project
+  return startClaudeSession(targetProjectId);
+}
+
+/**
+ * Switch from current session to a new project session
+ * Saves current session state and starts a new one
+ */
+export async function switchSession(toProjectId: string): Promise<{
+  previousSession?: Session;
+  newSession: Session;
+}> {
+  const toProject = getProject(toProjectId);
+  if (!toProject) {
+    throw new Error(`Project not found: ${toProjectId}`);
+  }
+
+  // Find current active session
+  const activeSessions = listActiveSessions();
+  let previousSession: Session | undefined;
+
+  // Stop any active session
+  if (activeSessions.length > 0) {
+    const currentSession = activeSessions[0];
+    previousSession = currentSession;
+
+    logger.info('Stopping current session: %s', currentSession.id);
+    await stopSession(currentSession.id);
+
+    // Wait a moment for clean shutdown
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  // Start new session
+  logger.info('Starting new session for project: %s', toProject.name);
+  const newSession = await startClaudeSession(toProjectId);
+
+  return {
+    previousSession,
+    newSession,
+  };
+}
+
+/**
+ * Get session details including project info
+ */
+export function getSessionDetails(sessionId: string): {
+  session: Session;
+  projectName: string;
+  projectPath: string;
+  duration: string;
+} | null {
+  const session = getSession(sessionId);
+  if (!session) {
+    return null;
+  }
+
+  const project = getProject(session.projectId);
+  if (!project) {
+    return null;
+  }
+
+  return {
+    session,
+    projectName: project.name,
+    projectPath: project.path,
+    duration: formatSessionDuration(session),
+  };
+}
+
+/**
+ * List sessions with filters
+ */
+export function listSessions(options?: {
+  status?: 'active' | 'completed' | 'interrupted';
+  projectId?: string;
+  limit?: number;
+}): Session[] {
+  if (options?.projectId) {
+    return listSessionsForProject(options.projectId).slice(0, options.limit || 50);
+  }
+
+  const allSessions = listSessionsFiltered(options?.status);
+  return allSessions.slice(0, options?.limit || 50);
 }

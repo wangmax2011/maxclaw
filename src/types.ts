@@ -239,3 +239,100 @@ export interface NotificationOptions {
   level?: NotificationLevel;
   metadata?: Record<string, unknown>;
 }
+
+// ===== EPIC-001: Daemon Types =====
+
+export interface DaemonConfig {
+  pidFile: string;
+  socketPath: string;
+  logFile: string;
+  heartbeatInterval: number; // milliseconds
+  sessionTimeout: number; // milliseconds
+}
+
+export interface DaemonStatus {
+  running: boolean;
+  pid: number;
+  startedAt: string;
+  uptime: number; // seconds
+  activeSessions: number;
+  totalSessionsHandled: number;
+}
+
+export interface DaemonSession extends Session {
+  daemonInstanceId: string;
+  heartbeatAt?: string;
+  context?: SessionContext;
+  workspaceId?: string;
+}
+
+export interface SessionContext {
+  initialPrompt?: string;
+  allowedTools?: string[];
+  workingDirectory?: string;
+  environment?: Record<string, string>;
+  bookmark?: BookmarkInfo;
+}
+
+export interface BookmarkInfo {
+  id: string;
+  message: string;
+  createdAt: string;
+}
+
+// IPC Protocol Types
+export interface IPCRequest {
+  jsonrpc: '2.0';
+  method: string;
+  params?: Record<string, unknown>;
+  id: number | string;
+}
+
+export interface IPCResponse {
+  jsonrpc: '2.0';
+  id: number | string;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+}
+
+export type IPCMethod =
+  | 'session.start'
+  | 'session.stop'
+  | 'session.status'
+  | 'session.list'
+  | 'session.resume'
+  | 'daemon.status'
+  | 'daemon.stop';
+
+// ===== EPIC-003: Workspace Types =====
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description?: string;
+  projectIds: string[];
+  activeProjectId?: string; // Currently focused project
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ===== EPIC-004: Configuration Profile Types =====
+
+export interface SessionProfile {
+  name: string;
+  description?: string;
+  defaultModel?: string;
+  allowedTools?: string[];
+  sessionTimeout?: number; // minutes
+  autoResume?: boolean;
+  workspace?: string; // Associated workspace name
+}
+
+export interface ProfileConfig {
+  profiles: Record<string, SessionProfile>;
+  defaultProfile?: string;
+}

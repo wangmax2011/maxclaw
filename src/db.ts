@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -319,6 +320,62 @@ function runMigrations(database: Database.Database): void {
     `);
     logger.debug('Migration: Added schedule_logs table');
   }
+
+  // EPIC-003: Workspace - Add workspaces and workspace_projects tables
+  const hasWorkspaces = tableNames.some((t) => t.name === 'workspaces');
+  const hasWorkspaceProjects = tableNames.some((t) => t.name === 'workspace_projects');
+
+  if (!hasWorkspaces) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        active_project_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(name);
+    `);
+    logger.debug('Migration: Added workspaces table');
+  }
+
+  if (!hasWorkspaceProjects) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_projects (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        UNIQUE(workspace_id, project_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_workspace_projects_workspace ON workspace_projects(workspace_id);
+      CREATE INDEX IF NOT EXISTS idx_workspace_projects_project ON workspace_projects(project_id);
+    `);
+    logger.debug('Migration: Added workspace_projects table');
+  }
+
+  // EPIC-005: Session Persistence - Add bookmarks table
+  const hasBookmarks = tableNames.some((t) => t.name === 'bookmarks');
+
+  if (!hasBookmarks) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS bookmarks (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        message TEXT NOT NULL,
+        context TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_session ON bookmarks(session_id);
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created_at);
+    `);
+    logger.debug('Migration: Added bookmarks table');
+  }
 }
 
 // Project operations
@@ -546,6 +603,68 @@ export function listSessionsForProject(projectId: string): Session[] {
   const rows = db
     .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY started_at DESC')
     .all(projectId) as Array<{
+    id: string;
+    project_id: string;
+    started_at: string;
+    ended_at: string | null;
+    status: 'active' | 'completed' | 'interrupted';
+    summary: string | null;
+    pid: number | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    startedAt: row.started_at,
+    endedAt: row.ended_at ?? undefined,
+    status: row.status,
+    summary: row.summary ?? undefined,
+    pid: row.pid ?? undefined,
+  }));
+}
+
+/**
+ * EPIC-002: Get all sessions ordered by started_at
+ */
+export function getAllSessions(): Session[] {
+  const rows = db
+    .prepare('SELECT * FROM sessions ORDER BY started_at DESC')
+    .all() as Array<{
+    id: string;
+    project_id: string;
+    started_at: string;
+    ended_at: string | null;
+    status: 'active' | 'completed' | 'interrupted';
+    summary: string | null;
+    pid: number | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    startedAt: row.started_at,
+    endedAt: row.ended_at ?? undefined,
+    status: row.status,
+    summary: row.summary ?? undefined,
+    pid: row.pid ?? undefined,
+  }));
+}
+
+/**
+ * EPIC-002: List sessions with status filter
+ */
+export function listSessionsFiltered(status?: string): Session[] {
+  let query = 'SELECT * FROM sessions';
+  const params: unknown[] = [];
+
+  if (status) {
+    query += ' WHERE status = ?';
+    params.push(status);
+  }
+
+  query += ' ORDER BY started_at DESC';
+
+  const rows = db.prepare(query).all(...params) as Array<{
     id: string;
     project_id: string;
     started_at: string;
@@ -1814,4 +1933,285 @@ export function getLatestScheduleLog(scheduleId: string): ScheduleLog | null {
     error: row.error ?? undefined,
     duration: row.duration ?? undefined,
   };
+}
+
+// ===== EPIC-003: Workspace Operations =====
+
+import type { Workspace } from './types.js';
+
+/**
+ * Create a new workspace
+ */
+export function createWorkspace(workspace: Workspace): void {
+  const stmt = db.prepare(`
+    INSERT INTO workspaces (id, name, description, active_project_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    workspace.id,
+    workspace.name,
+    workspace.description ?? null,
+    workspace.activeProjectId ?? null,
+    workspace.createdAt,
+    workspace.updatedAt
+  );
+}
+
+/**
+ * Get a workspace by ID
+ */
+export function getWorkspace(id: string): Workspace | null {
+  const row = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as
+    | {
+        id: string;
+        name: string;
+        description: string | null;
+        active_project_id: string | null;
+        created_at: string;
+        updated_at: string;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? undefined,
+    activeProjectId: row.active_project_id ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    projectIds: getWorkspaceProjectIds(row.id),
+  };
+}
+
+/**
+ * Get a workspace by name
+ */
+export function getWorkspaceByName(name: string): Workspace | null {
+  const row = db.prepare('SELECT * FROM workspaces WHERE name = ?').get(name) as
+    | {
+        id: string;
+        name: string;
+        description: string | null;
+        active_project_id: string | null;
+        created_at: string;
+        updated_at: string;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? undefined,
+    activeProjectId: row.active_project_id ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    projectIds: getWorkspaceProjectIds(row.id),
+  };
+}
+
+/**
+ * Get project IDs for a workspace
+ */
+function getWorkspaceProjectIds(workspaceId: string): string[] {
+  const rows = db
+    .prepare('SELECT project_id FROM workspace_projects WHERE workspace_id = ? ORDER BY position')
+    .all(workspaceId) as Array<{ project_id: string }>;
+
+  return rows.map((row) => row.project_id);
+}
+
+/**
+ * List all workspaces
+ */
+export function listWorkspaces(): Workspace[] {
+  const rows = db
+    .prepare('SELECT * FROM workspaces ORDER BY created_at DESC')
+    .all() as Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    active_project_id: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description ?? undefined,
+    activeProjectId: row.active_project_id ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    projectIds: getWorkspaceProjectIds(row.id),
+  }));
+}
+
+/**
+ * Update a workspace
+ */
+export function updateWorkspace(workspace: Partial<Workspace> & { id: string }): void {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (workspace.name !== undefined) {
+    fields.push('name = ?');
+    values.push(workspace.name);
+  }
+  if (workspace.description !== undefined) {
+    fields.push('description = ?');
+    values.push(workspace.description ?? null);
+  }
+  if (workspace.activeProjectId !== undefined) {
+    fields.push('active_project_id = ?');
+    values.push(workspace.activeProjectId ?? null);
+  }
+  if (workspace.updatedAt) {
+    fields.push('updated_at = ?');
+    values.push(workspace.updatedAt);
+  }
+
+  if (fields.length === 0) return;
+
+  values.push(workspace.id);
+  db.prepare(`UPDATE workspaces SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+/**
+ * Delete a workspace
+ */
+export function deleteWorkspace(id: string): void {
+  db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+}
+
+/**
+ * Add a project to a workspace
+ */
+export function addProjectToWorkspace(workspaceId: string, projectId: string): void {
+  const id = crypto.randomUUID();
+  const stmt = db.prepare(`
+    INSERT INTO workspace_projects (id, workspace_id, project_id, position, created_at)
+    VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM workspace_projects WHERE workspace_id = ?), ?)
+  `);
+  stmt.run(id, workspaceId, projectId, workspaceId, new Date().toISOString());
+}
+
+/**
+ * Remove a project from a workspace
+ */
+export function removeProjectFromWorkspace(workspaceId: string, projectId: string): void {
+  db.prepare('DELETE FROM workspace_projects WHERE workspace_id = ? AND project_id = ?').run(workspaceId, projectId);
+}
+
+/**
+ * Get projects in a workspace
+ */
+export function getWorkspaceProjects(workspaceId: string): string[] {
+  return getWorkspaceProjectIds(workspaceId);
+}
+
+// ===== EPIC-005: Session Persistence / Bookmark Operations =====
+
+import type { BookmarkInfo } from './types.js';
+
+export interface Bookmark {
+  id: string;
+  sessionId: string;
+  message: string;
+  context?: string;
+  createdAt: string;
+}
+
+/**
+ * Create a bookmark for a session
+ */
+export function createBookmark(bookmark: Bookmark): void {
+  const stmt = db.prepare(`
+    INSERT INTO bookmarks (id, session_id, message, context, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  stmt.run(bookmark.id, bookmark.sessionId, bookmark.message, bookmark.context ?? null, bookmark.createdAt);
+}
+
+/**
+ * Get bookmarks for a session
+ */
+export function getBookmarksForSession(sessionId: string): Bookmark[] {
+  const rows = db
+    .prepare('SELECT * FROM bookmarks WHERE session_id = ? ORDER BY created_at DESC')
+    .all(sessionId) as Array<{
+    id: string;
+    session_id: string;
+    message: string;
+    context: string | null;
+    created_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    sessionId: row.session_id,
+    message: row.message,
+    context: row.context ?? undefined,
+    createdAt: row.created_at,
+  }));
+}
+
+/**
+ * Get the latest bookmark for a session
+ */
+export function getLatestBookmark(sessionId: string): Bookmark | null {
+  const row = db
+    .prepare('SELECT * FROM bookmarks WHERE session_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(sessionId) as
+    | {
+        id: string;
+        session_id: string;
+        message: string;
+        context: string | null;
+        created_at: string;
+      }
+    | undefined;
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    message: row.message,
+    context: row.context ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * Get all bookmarks
+ */
+export function getAllBookmarks(): Bookmark[] {
+  const rows = db
+    .prepare('SELECT * FROM bookmarks ORDER BY created_at DESC')
+    .all() as Array<{
+    id: string;
+    session_id: string;
+    message: string;
+    context: string | null;
+    created_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    sessionId: row.session_id,
+    message: row.message,
+    context: row.context ?? undefined,
+    createdAt: row.created_at,
+  }));
+}
+
+/**
+ * Delete a bookmark
+ */
+export function deleteBookmark(id: string): void {
+  db.prepare('DELETE FROM bookmarks WHERE id = ?').run(id);
 }

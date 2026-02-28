@@ -97,6 +97,52 @@ maxclaw team suggest my-team --skills "frontend,react"
 
 Smart assignment considers member expertise, current workload, and availability.
 
+#### 📢 Enhanced Notifications
+Configure webhook notifications for multiple platforms (Feishu, WeChat, Slack):
+```bash
+maxclaw notify configure my-project --webhook <url> --type feishu --level info
+maxclaw notify test my-project                      # Send test notification
+maxclaw notify send my-project -m "Deployment complete" --level info
+maxclaw notify status my-project                    # View configuration
+```
+
+Supported notification types: `feishu`, `wechat`, `slack`, `custom`.
+Notification levels: `info`, `warning`, `error`.
+
+#### 🔀 Session Multi-plexing
+Run multiple concurrent sessions with resource management:
+```bash
+maxclaw multiplex status                            # View pool and resource status
+maxclaw multiplex config --max-sessions 10          # Configure limits
+maxclaw multiplex queue list                        # View queued sessions
+maxclaw multiplex queue cancel <item-id>            # Cancel queued request
+```
+
+Features:
+- **Session Pool** - Limit concurrent sessions system-wide and per-project
+- **Resource Monitoring** - CPU and memory usage tracking with auto-throttling
+- **Session Queue** - Queue sessions when limits reached with priority scheduling
+
+#### 🖥️ Terminal User Interface (TUI)
+Interactive terminal dashboard for managing MaxClaw:
+```bash
+maxclaw tui                                         # Launch TUI interface
+```
+
+Keyboard shortcuts:
+- `[1]` Dashboard - Overview and quick stats
+- `[2]` Projects - Browse and manage projects
+- `[3]` Sessions - View and control sessions
+- `[4]` Teams - Manage team members and tasks
+- `[h]` Help - Show keyboard shortcuts
+- `[q]` Quit TUI
+
+Features:
+- **Real-time updates** - Auto-refresh every 3 seconds
+- **Interactive navigation** - Keyboard-driven interface
+- **Session management** - Start, stop, and monitor sessions visually
+- **Resource monitoring** - View CPU and memory usage at a glance
+
 ## Installation
 
 ```bash

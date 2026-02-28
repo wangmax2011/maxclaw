@@ -207,6 +207,7 @@ program
   .argument('<project>', 'Project name or ID')
   .option('-t, --tools <tools>', 'Comma-separated list of allowed tools')
   .option('-p, --prompt <prompt>', 'Initial prompt to send')
+  .option('-P, --profile <profile>', 'Use a session profile')
   .action(async (projectName, options) => {
     try {
       const project = findProjectByName(projectName);
@@ -220,7 +221,26 @@ program
         process.exit(1);
       }
 
-      const allowedTools = options.tools?.split(',').map((t: string) => t.trim());
+      // Load profile if specified
+      let profileOptions: { allowedTools?: string[]; sessionTimeout?: number } = {};
+      if (options.profile) {
+        const { getProfile } = await import('./profile-manager.js');
+        const profile = getProfile(options.profile);
+        if (!profile) {
+          console.error(`❌ Profile not found: ${options.profile}`);
+          process.exit(1);
+        }
+        profileOptions = {
+          allowedTools: profile.allowedTools,
+          sessionTimeout: profile.sessionTimeout,
+        };
+        console.log(`📋 Using profile: ${profile.name}`);
+      }
+
+      // Command-line tools override profile tools
+      const allowedTools = options.tools
+        ? options.tools.split(',').map((t: string) => t.trim())
+        : profileOptions.allowedTools;
 
       console.log(`🚀 Starting Claude Code in ${project.name}...\n`);
 
@@ -2702,6 +2722,290 @@ agentCommand
     }
   });
 
+// Daemon command
+program
+  .command('daemon')
+  .description('Manage the MaxClaw daemon (background session manager)')
+  .action(async (options, command) => {
+    try {
+      // Check for subcommands
+      const subCommand = process.argv[3];
+
+      if (!subCommand || subCommand.startsWith('-')) {
+        // No subcommand, show help
+        command.help();
+        return;
+      }
+
+      const { DaemonManager } = await import('./daemon/daemon-manager.js');
+      const { checkExistingDaemon, getDaemonPid } = await import('./daemon/pid-manager.js');
+      const { getSocketPath } = await import('./daemon/socket-manager.js');
+      const net = await import('net');
+
+      switch (subCommand) {
+        case 'start':
+          const existing = checkExistingDaemon();
+          if (existing.running) {
+            console.log(`ℹ️  Daemon is already running (PID: ${existing.pid})`);
+            return;
+          }
+
+          const daemon = new DaemonManager();
+          await daemon.start();
+
+          console.log(`\n🚀 MaxClaw Daemon started!`);
+          console.log(`\n   PID: ${process.pid}`);
+          console.log(`   Socket: ${getSocketPath()}`);
+          console.log(`\n   The daemon runs in the background managing Claude Code sessions.`);
+          console.log(`   Use 'maxclaw daemon status' to check status.`);
+          console.log(`   Use 'maxclaw daemon stop' to stop the daemon.\n`);
+
+          // Keep process alive for daemon
+          process.on('SIGINT', async () => {
+            console.log('\n👋 Stopping daemon...');
+            await daemon.stop();
+            process.exit(0);
+          });
+
+          // Keep running
+          await new Promise(() => {});
+          break;
+
+        case 'stop':
+          const stopSocketPath = getSocketPath();
+          const existingCheck = checkExistingDaemon();
+
+          if (!existingCheck.running) {
+            console.log('ℹ️  Daemon is not running');
+            return;
+          }
+
+          const pidToKill = existingCheck.pid;
+          if (!pidToKill) {
+            console.log('❌ Could not get daemon PID');
+            return;
+          }
+
+          // Try to connect and send stop command
+          try {
+            const client = net.createConnection({ path: stopSocketPath }, () => {
+              const request = {
+                jsonrpc: '2.0',
+                method: 'daemon.stop',
+                id: 1,
+              };
+              client.write(JSON.stringify(request) + '\n');
+            });
+
+            client.on('data', (data) => {
+              const response = JSON.parse(data.toString());
+              if (response.result?.success) {
+                console.log('✅ Daemon stopped');
+              } else {
+                console.log('⚠️  Daemon stop response:', response);
+              }
+              client.end();
+            });
+
+            client.on('error', (error) => {
+              console.log(`⚠️  Could not connect to daemon: ${error}`);
+              console.log('You may need to manually kill the process:');
+              console.log(`   kill ${pidToKill}`);
+            });
+
+            // Wait for response
+            await new Promise((resolve) => {
+              client.on('end', resolve);
+              setTimeout(resolve, 3000);
+            });
+          } catch (error) {
+            console.log(`⚠️  Could not connect to daemon. Killing process...`);
+            try {
+              process.kill(pidToKill, 'SIGTERM');
+              console.log('✅ Daemon process killed');
+            } catch {
+              console.log('❌ Failed to kill daemon process');
+            }
+          }
+          break;
+
+        case 'status':
+          const statusCheck = checkExistingDaemon();
+
+          if (!statusCheck.running) {
+            console.log('❌ Daemon is not running');
+            return;
+          }
+
+          const statusSocketPath = getSocketPath();
+
+          // Try to get detailed status
+          try {
+            const client = net.createConnection({ path: statusSocketPath }, () => {
+              const request = {
+                jsonrpc: '2.0',
+                method: 'daemon.status',
+                id: 1,
+              };
+              client.write(JSON.stringify(request) + '\n');
+            });
+
+            client.on('data', (data) => {
+              const response = JSON.parse(data.toString());
+              if (response.result) {
+                const status = response.result;
+                console.log('\n📊 MaxClaw Daemon Status:\n');
+                console.log(`   Running:           Yes`);
+                console.log(`   PID:               ${status.pid}`);
+                console.log(`   Started At:        ${status.startedAt}`);
+                console.log(`   Uptime:            ${status.uptime}s`);
+                console.log(`   Active Sessions:   ${status.activeSessions}`);
+                console.log(`   Total Handled:     ${status.totalSessionsHandled}`);
+                console.log();
+              } else {
+                console.log('⚠️  Could not get status:', response.error);
+              }
+              client.end();
+            });
+
+            client.on('error', () => {
+              console.log('⚠️  Could not connect to daemon for detailed status');
+              console.log(`   Daemon process exists (PID: ${statusCheck.pid})`);
+            });
+
+            await new Promise((resolve) => {
+              client.on('end', resolve);
+              setTimeout(resolve, 3000);
+            });
+          } catch (error) {
+            console.log(`ℹ️  Daemon is running (PID: ${statusCheck.pid})`);
+          }
+          break;
+
+        default:
+          console.log(`Unknown daemon command: ${subCommand}`);
+          console.log('Use "maxclaw daemon" to see available commands.');
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// EPIC-002: Smart Session Management Commands
+
+// resume command
+program
+  .command('resume')
+  .description('Resume the last session for a project or globally')
+  .argument('[project]', 'Project name or ID (optional, resumes globally if not provided)')
+  .action(async (projectName) => {
+    try {
+      const { resumeSession } = await import('./session-manager.js');
+
+      if (projectName) {
+        const project = findProjectByName(projectName);
+        if (!project) {
+          console.error(`❌ Project not found: ${projectName}`);
+          process.exit(1);
+        }
+        console.log(`🚀 Resuming session for ${project.name}...\n`);
+        await resumeSession(project.id);
+      } else {
+        console.log('🚀 Resuming last session...\n');
+        await resumeSession();
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// switch command
+program
+  .command('switch')
+  .description('Save current session state and start a new session for a different project')
+  .argument('<project>', 'Project name or ID to switch to')
+  .action(async (projectName) => {
+    try {
+      const { switchSession } = await import('./session-manager.js');
+
+      const project = findProjectByName(projectName);
+      if (!project) {
+        console.error(`❌ Project not found: ${projectName}`);
+        process.exit(1);
+      }
+
+      console.log(`🔄 Switching to ${project.name}...\n`);
+      const result = await switchSession(project.id);
+
+      if (result.previousSession) {
+        console.log(`⏸️  Previous session stopped: ${result.previousSession.id}`);
+      }
+      console.log(`✅ New session started for ${project.name}`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// sessions command
+program
+  .command('sessions')
+  .description('List sessions with filters')
+  .option('-a, --all', 'Show all sessions (default: recent 50)')
+  .option('--active', 'Show only active sessions')
+  .option('--completed', 'Show only completed sessions')
+  .option('--interrupted', 'Show only interrupted sessions')
+  .option('-p, --project <project>', 'Filter by project')
+  .option('-l, --limit <n>', 'Limit number of results', '50')
+  .action(async (options) => {
+    try {
+      const { listSessions } = await import('./session-manager.js');
+      const { getSessionDetails } = await import('./session-manager.js');
+
+      let status: 'active' | 'completed' | 'interrupted' | undefined;
+      if (options.active) status = 'active';
+      else if (options.completed) status = 'completed';
+      else if (options.interrupted) status = 'interrupted';
+
+      const projectId = options.project ? findProjectByName(options.project)?.id : undefined;
+
+      const sessions = listSessions({
+        status,
+        projectId,
+        limit: options.all ? undefined : parseInt(options.limit, 10),
+      });
+
+      if (sessions.length === 0) {
+        console.log('No sessions found');
+        return;
+      }
+
+      console.log(`\n📋 Sessions (${sessions.length}):\n`);
+
+      for (const session of sessions) {
+        const details = getSessionDetails(session.id);
+        if (!details) continue;
+
+        const statusIcon = session.status === 'active' ? '🟢' : session.status === 'completed' ? '✅' : '⏸️';
+        const startedDate = new Date(session.startedAt).toLocaleString();
+
+        console.log(`${statusIcon} ${session.id.slice(0, 8)}...`);
+        console.log(`   Project: ${details.projectName}`);
+        console.log(`   Started: ${startedDate}`);
+        console.log(`   Duration: ${details.duration}`);
+        if (session.summary) {
+          console.log(`   Summary: ${session.summary.slice(0, 100)}...`);
+        }
+        console.log();
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
 // Dashboard command
 program
   .command('dashboard')
@@ -2742,5 +3046,740 @@ program
     }
   });
 
+// ===== EPIC-008: TUI Command =====
+
+program
+  .command('tui')
+  .description('Launch the MaxClaw Terminal User Interface')
+  .action(async () => {
+    try {
+      const { render } = await import('ink');
+      const React = await import('react');
+      const { App } = await import('./tui/app.js');
+
+      console.log('🚀 Launching MaxClaw TUI...\n');
+
+      const { waitUntilExit } = render(React.default.createElement(App));
+      await waitUntilExit();
+    } catch (error) {
+      console.error(`❌ Error launching TUI: ${error}`);
+      console.log('\n💡 Make sure you have installed the TUI dependencies:');
+      console.log('   npm install ink react\n');
+      process.exit(1);
+    }
+  });
+
+// ===== EPIC-006: Multiplexing Commands =====
+
+const multiplexCommand = program
+  .command('multiplex')
+  .description('Manage session multiplexing');
+
+// multiplex status
+multiplexCommand
+  .command('status')
+  .description('Show multiplexing status')
+  .action(async () => {
+    try {
+      const { ResourceManager } = await import('./multiplexing/index.js');
+      const resourceManager = new ResourceManager();
+      const status = resourceManager.getStatus();
+
+      console.log(`\n📊 Multiplexing Status\n`);
+      console.log(`  Pool:`);
+      console.log(`    Active Sessions: ${status.pool.activeSessions}/${status.pool.maxConcurrentSessions}`);
+      console.log(`    Available Slots: ${status.pool.availableSlots}`);
+      console.log(`    Utilization: ${status.pool.utilizationPercent}%`);
+
+      if (status.pool.sessionsByProject.size > 0) {
+        console.log(`    Sessions by Project:`);
+        for (const [projectId, count] of status.pool.sessionsByProject) {
+          const project = getProject(projectId);
+          console.log(`      - ${project?.name || 'Unknown'}: ${count}`);
+        }
+      }
+
+      console.log(`\n  Queue:`);
+      console.log(`    Queued Items: ${status.queue.totalQueued}`);
+      console.log(`    Average Wait Time: ${Math.round(status.queue.averageWaitTime / 1000)}s`);
+
+      console.log(`\n  Resources:`);
+      console.log(`    CPU Usage: ${status.resources.cpuPercent.toFixed(1)}%`);
+      console.log(`    Memory Usage: ${status.resources.memoryPercent.toFixed(1)}%`);
+      console.log(`    Throttle State: ${status.resources.state}`);
+      console.log(`    Can Start Session: ${status.resources.canStartSession ? 'Yes' : 'No'}`);
+      console.log();
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// multiplex config
+multiplexCommand
+  .command('config')
+  .description('Configure multiplexing settings')
+  .option('--max-sessions <n>', 'Maximum concurrent sessions')
+  .option('--max-per-project <n>', 'Maximum sessions per project')
+  .option('--queue <enabled|disabled>', 'Enable or disable queue')
+  .action(async (options) => {
+    try {
+      const { ResourceManager } = await import('./multiplexing/index.js');
+      const resourceManager = new ResourceManager();
+      const currentConfig = resourceManager.getPoolConfig();
+
+      if (!options.maxSessions && !options.maxPerProject && !options.queue) {
+        console.log(`\n⚙️  Multiplexing Configuration\n`);
+        console.log(`  Max Concurrent Sessions: ${currentConfig.maxConcurrentSessions}`);
+        console.log(`  Max Sessions Per Project: ${currentConfig.maxSessionsPerProject}`);
+        console.log(`  Queue Enabled: ${currentConfig.queueEnabled}`);
+        console.log(`  Session Timeout: ${currentConfig.sessionTimeout / 1000}s`);
+        console.log();
+        return;
+      }
+
+      const newConfig: Partial<typeof currentConfig> = {};
+      if (options.maxSessions) {
+        newConfig.maxConcurrentSessions = parseInt(options.maxSessions, 10);
+      }
+      if (options.maxPerProject) {
+        newConfig.maxSessionsPerProject = parseInt(options.maxPerProject, 10);
+      }
+      if (options.queue) {
+        newConfig.queueEnabled = options.queue === 'enabled';
+      }
+
+      resourceManager.updatePoolConfig(newConfig);
+      console.log(`✅ Multiplexing configuration updated`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// multiplex queue
+const multiplexQueueCommand = multiplexCommand
+  .command('queue')
+  .description('Manage session queue');
+
+// multiplex queue list
+multiplexQueueCommand
+  .command('list')
+  .description('List queued session requests')
+  .action(async () => {
+    try {
+      const { ResourceManager } = await import('./multiplexing/index.js');
+      const resourceManager = new ResourceManager();
+      const queuedItems = resourceManager.getQueuedItems();
+
+      if (queuedItems.length === 0) {
+        console.log('No queued session requests');
+        return;
+      }
+
+      console.log(`\n📋 Queued Session Requests (${queuedItems.length})\n`);
+      for (const item of queuedItems) {
+        console.log(`  #${item.position} ${item.projectName}`);
+        console.log(`     ID: ${item.id.slice(0, 8)}...`);
+        console.log(`     Priority: ${item.priority}`);
+        console.log(`     Requested: ${new Date(item.requestedAt).toLocaleString()}`);
+        console.log();
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// multiplex queue cancel
+multiplexQueueCommand
+  .command('cancel <item-id>')
+  .description('Cancel a queued session request')
+  .action(async (itemId) => {
+    try {
+      const { ResourceManager } = await import('./multiplexing/index.js');
+      const resourceManager = new ResourceManager();
+      const success = resourceManager.cancelQueuedSession(itemId);
+
+      if (success) {
+        console.log(`✅ Cancelled queued request: ${itemId.slice(0, 8)}...`);
+      } else {
+        console.error(`❌ Queued request not found: ${itemId}`);
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
 // Parse command line arguments
 program.parse();
+
+// ===== EPIC-003: Workspace Commands =====
+
+const workspaceCommand = program
+  .command('workspace')
+  .description('Manage workspaces (multi-project contexts)');
+
+// workspace create
+workspaceCommand
+  .command('create')
+  .description('Create a new workspace')
+  .argument('<name>', 'Workspace name')
+  .option('-d, --description <desc>', 'Workspace description')
+  .action(async (name, options) => {
+    try {
+      const { createNewWorkspace } = await import('./workspace-manager.js');
+
+      const workspace = createNewWorkspace(name, options.description);
+      console.log(`✅ Created workspace: ${workspace.name}`);
+      if (workspace.description) {
+        console.log(`   Description: ${workspace.description}`);
+      }
+      console.log(`   Projects: 0`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace list
+workspaceCommand
+  .command('list')
+  .description('List all workspaces')
+  .action(async () => {
+    try {
+      const { getAllWorkspaces } = await import('./workspace-manager.js');
+
+      const workspaces = getAllWorkspaces();
+
+      if (workspaces.length === 0) {
+        console.log('No workspaces found. Create one with `maxclaw workspace create <name>`');
+        return;
+      }
+
+      console.log(`\n📁 ${workspaces.length} workspace(s):\n`);
+
+      for (const workspace of workspaces) {
+        console.log(`  ${workspace.name}`);
+        if (workspace.description) {
+          console.log(`    ${workspace.description}`);
+        }
+        console.log(`    Projects: ${workspace.projectIds.length}`);
+        console.log(`    Created: ${new Date(workspace.createdAt).toLocaleDateString()}`);
+        console.log();
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace delete
+workspaceCommand
+  .command('delete')
+  .description('Delete a workspace')
+  .argument('<name>', 'Workspace name')
+  .action(async (name) => {
+    try {
+      const { deleteWorkspaceByName } = await import('./workspace-manager.js');
+
+      deleteWorkspaceByName(name);
+      console.log(`✅ Deleted workspace: ${name}`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace add
+workspaceCommand
+  .command('add')
+  .description('Add a project to a workspace')
+  .argument('<workspace>', 'Workspace name')
+  .argument('<project>', 'Project name to add')
+  .action(async (workspaceName, projectName) => {
+    try {
+      const { addProjectToWorkspaceByName } = await import('./workspace-manager.js');
+
+      addProjectToWorkspaceByName(workspaceName, projectName);
+      console.log(`✅ Added ${projectName} to workspace ${workspaceName}`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace remove
+workspaceCommand
+  .command('remove')
+  .description('Remove a project from a workspace')
+  .argument('<workspace>', 'Workspace name')
+  .argument('<project>', 'Project name to remove')
+  .action(async (workspaceName, projectName) => {
+    try {
+      const { removeProjectFromWorkspaceByName } = await import('./workspace-manager.js');
+
+      removeProjectFromWorkspaceByName(workspaceName, projectName);
+      console.log(`✅ Removed ${projectName} from workspace ${workspaceName}`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace activate
+workspaceCommand
+  .command('activate')
+  .description('Activate a workspace')
+  .argument('<name>', 'Workspace name to activate')
+  .action(async (name) => {
+    try {
+      const { activateWorkspace, getWorkspaceByNameOrThrow } = await import('./workspace-manager.js');
+
+      const workspace = activateWorkspace(name);
+      console.log(`✅ Activated workspace: ${workspace.name}`);
+      console.log(`   Projects: ${workspace.projectIds.length}`);
+
+      if (workspace.projectIds.length > 0) {
+        console.log('\n   Projects in workspace:');
+        for (const projectId of workspace.projectIds) {
+          const project = getProject(projectId);
+          if (project) {
+            console.log(`     - ${project.name}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace deactivate
+workspaceCommand
+  .command('deactivate')
+  .description('Deactivate current workspace')
+  .action(async () => {
+    try {
+      const { deactivateWorkspace } = await import('./workspace-manager.js');
+
+      deactivateWorkspace();
+      console.log('✅ Deactivated current workspace');
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace current
+workspaceCommand
+  .command('current')
+  .description('Show current active workspace')
+  .action(async () => {
+    try {
+      const { getActiveWorkspace } = await import('./workspace-manager.js');
+
+      const workspace = getActiveWorkspace();
+
+      if (!workspace) {
+        console.log('No active workspace');
+        return;
+      }
+
+      console.log(`\n📁 Current Workspace: ${workspace.name}`);
+      if (workspace.description) {
+        console.log(`   ${workspace.description}`);
+      }
+      console.log(`   Projects: ${workspace.projectIds.length}`);
+
+      if (workspace.projectIds.length > 0) {
+        console.log('\n   Projects:');
+        for (const projectId of workspace.projectIds) {
+          const project = getProject(projectId);
+          if (project) {
+            console.log(`     - ${project.name}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// workspace session
+workspaceCommand
+  .command('session')
+  .description('Start a session with workspace context')
+  .option('-t, --tools <tools>', 'Comma-separated list of allowed tools')
+  .option('-p, --prompt <prompt>', 'Initial prompt to send')
+  .action(async (options) => {
+    try {
+      const { startWorkspaceSession, getActiveWorkspace } = await import('./workspace-manager.js');
+
+      const workspace = getActiveWorkspace();
+
+      if (!workspace) {
+        console.error('❌ No active workspace. Run `maxclaw workspace activate <name>` first.');
+        process.exit(1);
+      }
+
+      const allowedTools = options.tools?.split(',').map((t: string) => t.trim());
+
+      console.log(`🚀 Starting workspace session for ${workspace.name}...\n`);
+
+      const result = await startWorkspaceSession(workspace.name, {
+        allowedTools,
+        initialPrompt: options.prompt,
+      });
+
+      console.log(`\n   Workspace: ${result.workspace}`);
+      console.log(`   Projects in context: ${result.projects.join(', ')}`);
+      console.log(`   Session ID: ${result.sessionId}`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// ===== EPIC-004: Configuration Profile Commands =====
+
+const profileCommand = program
+  .command('profile')
+  .description('Manage session profiles');
+
+// profile list
+profileCommand
+  .command('list')
+  .description('List all profiles')
+  .action(async () => {
+    try {
+      const { listAllProfiles, getDefaultProfile } = await import('./profile-manager.js');
+
+      const profiles = listAllProfiles();
+      const defaultProfile = getDefaultProfile();
+
+      if (profiles.length === 0) {
+        console.log('No profiles found. Create one with `maxclaw profile create <name>`');
+        return;
+      }
+
+      console.log(`\n📋 ${profiles.length} profile(s):\n`);
+
+      for (const profile of profiles) {
+        const isDefault = defaultProfile?.name === profile.name ? ' (default)' : '';
+        console.log(`  ${profile.name}${isDefault}`);
+        if (profile.description) {
+          console.log(`    ${profile.description}`);
+        }
+        if (profile.defaultModel) {
+          console.log(`    Model: ${profile.defaultModel}`);
+        }
+        if (profile.allowedTools && profile.allowedTools.length > 0) {
+          console.log(`    Tools: ${profile.allowedTools.join(', ')}`);
+        }
+        if (profile.autoResume) {
+          console.log(`    Auto-resume: enabled`);
+        }
+        console.log();
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// profile create
+profileCommand
+  .command('create')
+  .description('Create a new profile')
+  .argument('<name>', 'Profile name')
+  .option('-d, --description <desc>', 'Profile description')
+  .option('-m, --model <model>', 'Default model')
+  .option('-t, --tools <tools>', 'Comma-separated list of allowed tools')
+  .option('-T, --timeout <minutes>', 'Session timeout in minutes', '60')
+  .option('-a, --auto-resume', 'Enable auto-resume')
+  .option('-w, --workspace <workspace>', 'Associated workspace')
+  .action(async (name, options) => {
+    try {
+      const { createProfile } = await import('./profile-manager.js');
+
+      const profile = createProfile(name, {
+        description: options.description,
+        defaultModel: options.model,
+        allowedTools: options.tools?.split(',').map((t: string) => t.trim()),
+        sessionTimeout: parseInt(options.timeout, 10),
+        autoResume: options.autoResume || false,
+        workspace: options.workspace,
+      });
+
+      console.log(`✅ Created profile: ${profile.name}`);
+      if (profile.description) {
+        console.log(`   Description: ${profile.description}`);
+      }
+      if (profile.defaultModel) {
+        console.log(`   Model: ${profile.defaultModel}`);
+      }
+      if (profile.allowedTools && profile.allowedTools.length > 0) {
+        console.log(`   Tools: ${profile.allowedTools.join(', ')}`);
+      }
+      if (profile.autoResume) {
+        console.log(`   Auto-resume: enabled`);
+      }
+      if (profile.workspace) {
+        console.log(`   Workspace: ${profile.workspace}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// profile delete
+profileCommand
+  .command('delete')
+  .description('Delete a profile')
+  .argument('<name>', 'Profile name')
+  .action(async (name) => {
+    try {
+      const { deleteProfile } = await import('./profile-manager.js');
+
+      deleteProfile(name);
+      console.log(`✅ Deleted profile: ${name}`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// profile set-default
+profileCommand
+  .command('set-default')
+  .description('Set the default profile')
+  .argument('<name>', 'Profile name')
+  .action(async (name) => {
+    try {
+      const { setDefaultProfile, getProfile } = await import('./profile-manager.js');
+
+      const profile = getProfile(name);
+      if (!profile) {
+        console.error(`❌ Profile not found: ${name}`);
+        process.exit(1);
+      }
+
+      setDefaultProfile(name);
+      console.log(`✅ Set ${name} as default profile`);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// profile show
+profileCommand
+  .command('show')
+  .description('Show profile details')
+  .argument('[name]', 'Profile name (shows default if not specified)')
+  .action(async (name) => {
+    try {
+      const { getProfile, getDefaultProfile } = await import('./profile-manager.js');
+
+      let profile;
+      if (name) {
+        profile = getProfile(name);
+        if (!profile) {
+          console.error(`❌ Profile not found: ${name}`);
+          process.exit(1);
+        }
+      } else {
+        profile = getDefaultProfile();
+        if (!profile) {
+          console.log('No default profile set');
+          return;
+        }
+      }
+
+      console.log(`\n📋 Profile: ${profile.name}`);
+      if (profile.description) {
+        console.log(`   Description: ${profile.description}`);
+      }
+      if (profile.defaultModel) {
+        console.log(`   Model: ${profile.defaultModel}`);
+      }
+      if (profile.allowedTools && profile.allowedTools.length > 0) {
+        console.log(`   Tools: ${profile.allowedTools.join(', ')}`);
+      }
+      if (profile.sessionTimeout) {
+        console.log(`   Timeout: ${profile.sessionTimeout} minutes`);
+      }
+      if (profile.autoResume) {
+        console.log(`   Auto-resume: enabled`);
+      }
+      if (profile.workspace) {
+        console.log(`   Workspace: ${profile.workspace}`);
+      }
+      console.log();
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// ===== EPIC-005: Session Persistence Commands =====
+
+const sessionCommand = program.command('session').description('Session management commands');
+
+// session export
+sessionCommand
+  .command('export')
+  .description('Export a session')
+  .argument('<id>', 'Session ID')
+  .option('-f, --format <format>', 'Export format (markdown or json)', 'markdown')
+  .action(async (sessionId, options) => {
+    try {
+      const { exportSessionToMarkdown, exportSessionToJson } = await import('./session-export.js');
+
+      let output: string;
+      if (options.format === 'json') {
+        output = exportSessionToJson(sessionId);
+      } else {
+        output = exportSessionToMarkdown(sessionId);
+      }
+
+      console.log(output);
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// session continue
+sessionCommand
+  .command('continue')
+  .description('Continue a previous session')
+  .argument('<id>', 'Session ID')
+  .action(async (sessionId) => {
+    try {
+      const { getSessionContextForContinue } = await import('./session-export.js');
+      const { startClaudeSession } = await import('./session-manager.js');
+
+      const context = getSessionContextForContinue(sessionId);
+      if (!context) {
+        console.error(`❌ Session not found: ${sessionId}`);
+        process.exit(1);
+      }
+
+      console.log(`🔄 Continuing session: ${sessionId}`);
+      console.log(`   Project: ${context.projectName}`);
+      if (context.lastBookmark) {
+        console.log(`   Last bookmark: ${context.lastBookmark.message}`);
+      }
+      if (context.summary) {
+        console.log(`   Previous summary: ${context.summary.slice(0, 100)}...`);
+      }
+
+      // Start new session for the same project
+      await startClaudeSession(context.session.projectId, {
+        initialPrompt: context.lastBookmark
+          ? `Continuing from: ${context.lastBookmark.message}. ${context.lastBookmark.context || ''}`
+          : undefined,
+      });
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// ===== Bookmark Commands =====
+
+const bookmarkCommand = program.command('bookmark').description('Session bookmark commands');
+
+// bookmark add
+bookmarkCommand
+  .command('add')
+  .description('Add a bookmark to a session')
+  .argument('<session-id>', 'Session ID')
+  .argument('<message>', 'Bookmark message')
+  .option('-c, --context <context>', 'Additional context')
+  .action(async (sessionId, message, options) => {
+    try {
+      const { createBookmarkForSession } = await import('./session-export.js');
+
+      const bookmark = createBookmarkForSession(sessionId, message, options.context) as any;
+      console.log(`✅ Bookmark added:`);
+      console.log(`   Session: ${sessionId}`);
+      console.log(`   Message: ${bookmark.message}`);
+      if ((bookmark as any).context) {
+        console.log(`   Context: ${(bookmark as any).context}`);
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// bookmark list
+bookmarkCommand
+  .command('list')
+  .description('List all bookmarks')
+  .action(async () => {
+    try {
+      const { getAllBookmarks, getSession, getProject } = await import('./db.js');
+
+      const bookmarks = getAllBookmarks();
+
+      if (bookmarks.length === 0) {
+        console.log('No bookmarks found');
+        return;
+      }
+
+      console.log(`\n📑 ${bookmarks.length} bookmark(s):\n`);
+
+      for (const bookmark of bookmarks) {
+        const session = getSession(bookmark.sessionId);
+        const projectName = session ? getProject(session.projectId)?.name : 'Unknown';
+
+        console.log(`  📍 ${bookmark.message}`);
+        console.log(`     Session: ${bookmark.sessionId.slice(0, 8)}... (${projectName || 'Unknown project'})`);
+        console.log(`     Created: ${new Date(bookmark.createdAt).toLocaleString()}`);
+        if (bookmark.context) {
+          console.log(`     Context: ${bookmark.context}`);
+        }
+        console.log();
+      }
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+// bookmark resume
+bookmarkCommand
+  .command('resume')
+  .description('Resume the most recently bookmarked session')
+  .action(async () => {
+    try {
+      const { getAllBookmarks, getLatestBookmark } = await import('./db.js');
+      const { resumeSession } = await import('./session-manager.js');
+
+      const bookmarks = getAllBookmarks();
+      if (bookmarks.length === 0) {
+        console.log('No bookmarks found');
+        return;
+      }
+
+      const latestBookmark = getLatestBookmark(bookmarks[0].sessionId);
+      if (!latestBookmark) {
+        console.log('No bookmarks found');
+        return;
+      }
+
+      console.log(`🔄 Resuming session from bookmark: ${latestBookmark.message}`);
+      await resumeSession();
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
