@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { ScreenProps } from '../types.js';
+import { ResourceMonitor } from '../../multiplexing/resource-monitor.js';
 
 export const DashboardScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) => {
   const [stats, setStats] = useState({
@@ -16,6 +17,8 @@ export const DashboardScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
   useEffect(() => {
     if (!onFocus) return;
 
+    let resourceMonitor: ResourceMonitor | null = null;
+
     // Load dashboard stats
     const loadStats = async () => {
       try {
@@ -25,12 +28,25 @@ export const DashboardScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
         const sessions = listActiveSessions();
         const projects = getAllProjects();
 
+        // Get resource metrics
+        let cpuUsage = 0;
+        let memoryUsage = 0;
+
+        if (!resourceMonitor) {
+          resourceMonitor = new ResourceMonitor();
+          await resourceMonitor.start();
+        }
+
+        const metrics = await resourceMonitor.collectMetrics();
+        cpuUsage = metrics.cpuUsage;
+        memoryUsage = metrics.memoryPercent;
+
         setStats({
           activeSessions: sessions.length,
           totalProjects: projects.length,
           activeTeams: 0,
-          cpuUsage: 0,
-          memoryUsage: 0,
+          cpuUsage,
+          memoryUsage,
         });
       } catch (error) {
         // Handle error silently
@@ -38,8 +54,13 @@ export const DashboardScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
     };
 
     loadStats();
-    const interval = setInterval(loadStats, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(loadStats, 3000);
+    return () => {
+      clearInterval(interval);
+      if (resourceMonitor) {
+        resourceMonitor.stop();
+      }
+    };
   }, [onFocus]);
 
   return (
