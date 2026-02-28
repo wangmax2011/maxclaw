@@ -1,0 +1,210 @@
+# MaxClaw 项目模板
+# 基于 NanoClaw 的个人项目助理
+
+project:
+  name: "MaxClaw"
+  description: "基于 NanoClaw 的个人项目助理，自动发现本地项目，通过命令行管理 Claude Code，跟踪项目状态和历史记录"
+  type: "personal-assistant"
+  version: "0.1.0"
+
+# 项目来源
+based_on:
+  name: "NanoClaw"
+  source: "/Volumes/zhitai-2/gitrepo/github/nanoclaw"
+  approach: "fork-and-modify"
+
+# 技术栈
+tech_stack:
+  language: "TypeScript"
+  runtime: "Node.js 20+"
+  execution: "local"
+  container: "Docker (cross-platform) / Apple Container (macOS native)"
+
+# 核心目标
+goals:
+  primary:
+    - "自动发现本地项目目录"
+    - "通过命令行与助理交互"
+    - "启动和管理 Claude Code 会话"
+    - "跟踪项目状态和操作历史"
+
+  secondary:
+    - "项目元数据管理（技术栈、描述、优先级）"
+    - "任务/提醒调度"
+    - "与外部工具集成（GitHub、Notion 等）"
+    - "多 Agent 协作支持"
+    - "未来支持飞书(Feishu)和微信(WeChat)交互"
+
+# 成功标准
+success_criteria:
+  - "可以扫描并识别本地项目（通过 git 仓库、package.json 等标记）"
+  - "提供 CLI 命令：list, start, status, history 等"
+  - "能在指定项目目录启动 Claude Code"
+  - "记录每个项目的 Claude Code 会话历史"
+  - "基于 NanoClaw 架构，保持代码简洁可理解"
+
+# 功能需求
+requirements:
+  functional:
+    - name: "项目自动发现"
+      description: "扫描指定目录，自动识别项目（.git、package.json、Cargo.toml 等标记）"
+      priority: "P0"
+
+    - name: "项目注册管理"
+      description: "手动添加/删除项目，编辑项目元数据（名称、描述、技术栈、路径）"
+      priority: "P0"
+
+    - name: "Claude Code 调用"
+      description: "在指定项目目录启动 Claude Code，传递上下文信息"
+      priority: "P0"
+
+    - name: "会话状态跟踪"
+      description: "记录当前活跃的 Claude Code 会话，支持查看和中断"
+      priority: "P0"
+
+    - name: "历史记录"
+      description: "记录每个项目的操作历史（启动时间、执行命令、结果摘要）"
+      priority: "P1"
+
+    - name: "定时任务"
+      description: "设置周期性任务，在指定时间执行操作并报告"
+      priority: "P2"
+
+    - name: "知识管理"
+      description: "项目级 CLAUDE.md 记忆文件管理"
+      priority: "P1"
+
+    - name: "集成扩展"
+      description: "预留接口支持与 GitHub、Notion 等工具集成"
+      priority: "P2"
+
+  non_functional:
+    - name: "简洁性"
+      description: "保持代码库小而精，单进程运行，易于理解和修改"
+
+    - name: "本地优先"
+      description: "所有数据本地存储（SQLite），无需云服务"
+
+    - name: "可扩展性"
+      description: "通过 Skills 机制添加新功能，不修改核心代码"
+
+    - name: "安全性"
+      description: "延续 NanoClaw 的容器隔离机制"
+
+# 命令行界面设计
+cli_commands:
+  - command: "maxclaw list"
+    description: "列出所有已发现/注册的项目"
+
+  - command: "maxclaw discover [path]"
+    description: "扫描指定路径发现新项目"
+
+  - command: "maxclaw start <project>"
+    description: "在指定项目启动 Claude Code"
+
+  - command: "maxclaw status"
+    description: "查看当前活跃的会话状态"
+
+  - command: "maxclaw history <project>"
+    description: "查看项目的操作历史"
+
+  - command: "maxclaw add <path>"
+    description: "手动添加项目"
+
+  - command: "maxclaw remove <project>"
+    description: "移除项目（不删除文件）"
+
+  - command: "maxclaw config"
+    description: "配置 MaxClaw（项目扫描路径等）"
+
+# 数据模型
+entities:
+  - name: "Project"
+    fields:
+      - id: "string"
+      - name: "string"
+      - path: "string"
+      - description: "string"
+      - tech_stack: "string[]"
+      - discovered_at: "datetime"
+      - last_accessed: "datetime"
+      - metadata: "json"
+
+  - name: "Session"
+    fields:
+      - id: "string"
+      - project_id: "string"
+      - started_at: "datetime"
+      - ended_at: "datetime"
+      - status: "enum: active|completed|interrupted"
+      - summary: "string"
+
+  - name: "Activity"
+    fields:
+      - id: "string"
+      - project_id: "string"
+      - session_id: "string"
+      - type: "enum: start|command|complete"
+      - timestamp: "datetime"
+      - details: "json"
+
+# 架构参考
+architecture:
+  core_files:
+    - "src/index.ts - 主入口和 CLI 命令解析"
+    - "src/project-manager.ts - 项目发现和管理"
+    - "src/session-manager.ts - Claude Code 会话管理"
+    - "src/db.ts - SQLite 数据操作"
+    - "src/claw-runner.ts - 启动 Claude Code（基于 container-runner）"
+
+  data_storage:
+    - "SQLite 数据库: ~/.maxclaw/data.db"
+    - "项目记忆: ~/.maxclaw/projects/<id>/CLAUDE.md"
+
+  config:
+    - "配置文件: ~/.maxclaw/config.yaml"
+    - "扫描路径列表"
+    - "默认启动选项"
+
+# 项目边界
+out_of_scope:
+  - "不实现图形界面（第一阶段）"
+  - "不实现远程/云服务"
+  - "不替代 Claude Code 本身，只是管理 wrapper"
+  - "第一阶段不实现飞书/微信集成"
+
+# 开发计划
+phases:
+  - name: "MVP"
+    description: "核心功能：项目发现、Claude Code 启动、基础 CLI"
+    duration: "2-3 天"
+
+  - name: "增强"
+    description: "历史记录、状态跟踪、项目元数据管理"
+    duration: "1-2 天"
+
+  - name: "扩展"
+    description: "定时任务、集成接口、Feishu/WeChat 技能"
+    duration: "待定"
+
+# 学习资源
+references:
+  - "NanoClaw 源码: /Volumes/zhitai-2/gitrepo/github/nanoclaw"
+  - "NanoClaw Architecture: /Volumes/zhitai-2/gitrepo/github/nanoclaw/docs/nanoclaw-architecture-final.md"
+  - "Claude Agent SDK 文档"
+
+# Loop 配置
+loop_config:
+  # 项目基于现有代码库，可以从 Phase 4 开始
+  start_phase: 4
+
+  # 速率限制处理
+  rate_limit_handling:
+    retry_after_seconds: 60
+    max_retries: 3
+
+  # 工作模式
+  workflow:
+    - "Phase 4: 实现核心功能（基于 NanoClaw fork）"
+    - "Phase 5: 测试和优化"
+    - "Phase 6: 部署和文档"

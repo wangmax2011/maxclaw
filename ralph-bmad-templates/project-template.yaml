@@ -1,0 +1,200 @@
+---
+# Ralph BMAD Loop - Project Goal Template
+# Fill in your project details and start with:
+#   /ralph-bmad-loop --project ./this-file.yaml
+
+template_version: "1.0.0"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROJECT IDENTITY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+project_name: "my-awesome-project"
+description: |
+  Brief description of what this project aims to achieve.
+  Can be multi-line for clarity.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROJECT TYPE & CONSTRAINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+project_type: web-app
+# Options: web-app, mobile-app, api-service, cli-tool, library, data-pipeline, other
+
+tech_stack:
+  preferred_language: TypeScript
+  # Options: TypeScript, Python, Go, Rust, Java, Ruby, etc.
+
+  preferred_framework: Next.js
+  # Options: Next.js, React, Vue, Express, FastAPI, Django, etc.
+
+  database: PostgreSQL
+  # Options: PostgreSQL, MySQL, MongoDB, Redis, etc.
+
+  infrastructure: Vercel
+  # Options: AWS, GCP, Azure, Vercel, Docker, Kubernetes, etc.
+
+constraints:
+  timeline: "2 weeks"
+  budget: "$1000"
+  team_size: 1
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GOALS & SUCCESS CRITERIA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+goals:
+  primary: |
+    The main objective of this project.
+
+  secondary:
+    - "Secondary goal 1"
+    - "Secondary goal 2"
+    - "Secondary goal 3"
+
+success_criteria:
+  - id: SC-001
+    description: "Feature X is implemented and tested"
+    measurable: "All tests passing, coverage > 80%"
+
+  - id: SC-002
+    description: "Performance requirements met"
+    measurable: "API response time < 200ms p95"
+
+  - id: SC-003
+    description: "Documentation complete"
+    measurable: "README + API docs published"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USER STORIES (Optional - agents will generate if omitted)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+user_stories:
+  - "As a [user], I want [feature] so that [benefit]"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# KNOWN REQUIREMENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+requirements:
+  functional:
+    - "Feature A must support X, Y, Z"
+    - "Feature B must integrate with external API"
+
+  non_functional:
+    - "Must handle 1000 concurrent users"
+    - "99.9% uptime SLA"
+    - "GDPR compliant data handling"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BOUNDARIES (What is OUT of scope)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+out_of_scope:
+  - "Mobile app (web only for now)"
+  - "Payment processing"
+  - "Real-time collaboration"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RESOURCES & REFERENCES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+references:
+  existing_codebase: null
+  # Path to existing code if extending: "./existing-project"
+
+  design_assets: null
+  # Path to Figma/Adobe files: "./designs/"
+
+  api_documentation: null
+  # URL or path to API docs
+
+  competitor_analysis: null
+  # Links to competitive products for reference
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BMAD LOOP CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+loop_config:
+  max_iterations: 100
+  # Safety limit - loop will stop after N iterations
+
+  mode: adaptive
+  # Options:
+  #   - sequential: Strict phase order (analysis → planning → solutioning → implementation)
+  #   - adaptive: Agents decide workflow based on context
+
+  agents:
+    enabled: all
+    # Options: all, or comma-separated list: "pm,architect,dev"
+
+  auto_approve:
+    # What decisions can agents make without user confirmation
+    workflow_selection: true
+    phase_transitions: true
+    minor_code_changes: true
+    major_rewrites: false
+
+  notifications:
+    on_phase_complete: true
+    on_iteration_complete: false
+    on_blocking_issue: true
+
+  # Rate Limit Resilience Configuration
+  # The loop automatically handles API rate limits and token exhaustion
+  rate_limit_handling:
+    enabled: true
+    max_retries: 10
+    # Retry attempts before giving up (0 = unlimited, not recommended)
+
+    backoff_strategy: exponential
+    # Options: exponential, linear, fixed
+
+    backoff_base_seconds: 60
+    # Initial wait time for rate limit recovery
+
+    backoff_max_seconds: 3600
+    # Maximum wait time between retries (1 hour)
+
+    # Provider-specific settings (auto-detected, but can override)
+    provider:
+      name: auto  # auto, kimi, openai, anthropic
+      token_reset_minutes: 300  # 5 hours for Kimi
+      weekly_reset_day: 0  # 0 = Sunday
+
+    # Checkpoint settings
+    save_checkpoints: true
+    # Save state before long waits (for resume after weekly limits)
+
+    notify_on_pause: true
+    # Show detailed message when pausing for rate limit
+
+    # Cost protection
+    max_daily_cost_usd: 100
+    # Pause if estimated daily cost exceeds this amount
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMPLETION PROMISE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+completion_promise: "RALPH_BMAD_COMPLETE"
+# This string signals loop completion when output by agents
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTPUT CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+output:
+  directory: "_bmad-output"
+  # Where all artifacts will be saved
+
+  artifacts:
+    - product-brief
+    - prd
+    - architecture
+    - epics-and-stories
+    - sprint-plans
+    - code
+    - tests
+    - documentation
