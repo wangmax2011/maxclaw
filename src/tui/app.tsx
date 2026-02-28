@@ -41,6 +41,15 @@ export const App: React.FC = () => {
         // q or Escape
         setState(prev => ({ ...prev, isRunning: false }));
         process.exit(0);
+      } else if (key === 'r' || key === 'R') {
+        // Refresh on any screen
+        // Could trigger a global refresh event
+      } else if (key === 'd' || key === 'D') {
+        // Quick discover projects (from any screen)
+        setState(prev => ({ ...prev, currentScreen: 'projects' }));
+      } else if (key === 's' || key === 'S') {
+        // Quick start session (from any screen)
+        setState(prev => ({ ...prev, currentScreen: 'sessions' }));
       }
     };
 
@@ -113,7 +122,7 @@ export const App: React.FC = () => {
       {/* Footer */}
       <Box borderStyle="single" borderColor={config.theme.borderColor} paddingX={1}>
         <Text color="gray">
-          [1-4] Navigate | [h] Help | [q] Quit
+          [1-4] Navigate | [s] Session | [d] Discover | [h] Help | [q] Quit
         </Text>
       </Box>
     </Box>
@@ -140,17 +149,30 @@ const HelpScreen: React.FC<{ onFocus: boolean; onNavigate: (screen: ScreenType) 
     <Box flexDirection="column">
       <Text bold>Keyboard Shortcuts</Text>
       <Text> </Text>
+      <Text bold color="green">Navigation</Text>
       <Text><Text bold color="cyan">[1]</Text> Dashboard - Overview and quick stats</Text>
       <Text><Text bold color="cyan">[2]</Text> Projects - Browse and manage projects</Text>
       <Text><Text bold color="cyan">[3]</Text> Sessions - View and control sessions</Text>
       <Text><Text bold color="cyan">[4]</Text> Teams - Manage team members and tasks</Text>
+      <Text> </Text>
+      <Text bold color="green">Quick Actions</Text>
+      <Text><Text bold color="cyan">[s]</Text> Go to Sessions - Start or view sessions</Text>
+      <Text><Text bold color="cyan">[d]</Text> Discover Projects - Quick access to discovery</Text>
+      <Text> </Text>
+      <Text bold color="green">General</Text>
       <Text><Text bold color="cyan">[h]</Text> Help - Show this screen</Text>
       <Text><Text bold color="cyan">[q]</Text> or [Escape] - Quit TUI</Text>
       <Text> </Text>
-      <Text bold color="green">Navigation Tips</Text>
-      <Text>• Use number keys to switch between screens</Text>
-      <Text>• Press 'h' anytime to view this help</Text>
-      <Text>• Press 'q' to exit the TUI</Text>
+      <Text bold color="green">Screen-Specific Shortcuts</Text>
+      <Text dimColor>Dashboard:</Text>
+      <Text dimColor>  [r] Refresh stats</Text>
+      <Text dimColor>Projects:</Text>
+      <Text dimColor>  [Enter] Start session | [a] Add project</Text>
+      <Text dimColor>Sessions:</Text>
+      <Text dimColor>  [s] Start | [x] Stop | [r] Resume</Text>
+      <Text> </Text>
+      <Text bold color="yellow">Tip</Text>
+      <Text>Number keys work from any screen for quick navigation.</Text>
     </Box>
   );
 };
