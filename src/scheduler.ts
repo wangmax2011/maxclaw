@@ -219,67 +219,11 @@ async function executeSkillTask(schedule: Schedule): Promise<TaskExecutionResult
   }
 }
 
-/**
- * Execute a GitHub sync task
- */
-async function executeGitHubSyncTask(schedule: Schedule): Promise<TaskExecutionResult> {
-  const startTime = Date.now();
-
-  try {
-    const { syncAll, getProjectGitHubConfig } = await import('./github-sync.js');
-    const config = getProjectGitHubConfig(schedule.projectId);
-
-    if (!config.repo) {
-      return {
-        success: false,
-        error: 'Project not linked to GitHub repository',
-        duration: Date.now() - startTime,
-      };
-    }
-
-    const result = await syncAll(schedule.projectId);
-
-    if (result.success) {
-      const output = [
-        'GitHub sync completed successfully:',
-        `- Issues: ${result.results.issues.issues?.total || 0} synced`,
-        `- Pull Requests: ${result.results.pullRequests.pullRequests?.total || 0} synced`,
-        `- Commits: ${result.results.commits.commits?.total || 0} synced`,
-      ].join('\n');
-
-      return {
-        success: true,
-        output,
-        duration: Date.now() - startTime,
-      };
-    } else {
-      const errors = [
-        result.results.issues.error,
-        result.results.pullRequests.error,
-        result.results.commits.error,
-      ].filter(Boolean);
-
-      return {
-        success: false,
-        error: errors.join('; ') || 'GitHub sync failed',
-        duration: Date.now() - startTime,
-      };
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: String(error),
-      duration: Date.now() - startTime,
-    };
-  }
-}
-
 // Register default task executors
 registerTaskExecutor('reminder', executeReminderTask);
 registerTaskExecutor('backup', executeBackupTask);
 registerTaskExecutor('command', executeCommandTask);
 registerTaskExecutor('skill', executeSkillTask);
-registerTaskExecutor('github-sync', executeGitHubSyncTask);
 
 /**
  * Execute a single schedule task

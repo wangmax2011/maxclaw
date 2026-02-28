@@ -2702,5 +2702,45 @@ agentCommand
     }
   });
 
+// Dashboard command
+program
+  .command('dashboard')
+  .description('Start the MaxClaw web dashboard')
+  .option('-p, --port <port>', 'Dashboard port', '9876')
+  .option('--stop', 'Stop the running dashboard')
+  .action(async (options) => {
+    try {
+      const { startDashboard, stopDashboard } = await import('./dashboard-server.js');
+
+      if (options.stop) {
+        await stopDashboard();
+        console.log('✅ Dashboard stopped');
+        return;
+      }
+
+      const port = parseInt(options.port, 10);
+      const url = await startDashboard(port);
+
+      console.log(`\n🚀 MaxClaw Dashboard started!`);
+      console.log(`\n   Local URL: ${url}`);
+      console.log(`\n   The dashboard should open automatically in your browser.`);
+      console.log(`   If not, copy the URL above and open it manually.`);
+      console.log(`\n   Press Ctrl+C to stop the dashboard\n`);
+
+      // Keep process alive
+      process.on('SIGINT', async () => {
+        console.log('\n\n👋 Stopping dashboard...');
+        await stopDashboard();
+        process.exit(0);
+      });
+
+      // Keep running
+      await new Promise(() => {});
+    } catch (error) {
+      console.error(`❌ Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
 // Parse command line arguments
 program.parse();

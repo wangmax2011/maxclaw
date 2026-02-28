@@ -358,15 +358,6 @@ export async function generateSessionSummary(
 
       logger.info('Summary generated for session: %s', sessionId);
 
-      // E5: Auto-sync to Notion if configured
-      try {
-        const { autoSyncSessionSummary } = await import('./notion-sync.js');
-        await autoSyncSessionSummary(sessionId);
-      } catch (syncError) {
-        logger.warn('Failed to auto-sync session to Notion: %s', syncError);
-        // Don't fail the summary generation if sync fails
-      }
-
       return getSession(sessionId);
     } else {
       updateSession({

@@ -49,6 +49,24 @@ maxclaw schedule remove <schedule-id>
 
 All tasks run locally on your machine.
 
+#### 📊 Web Dashboard
+Visual overview of all your projects and sessions:
+```bash
+maxclaw dashboard                                 # Start dashboard (default port 9876)
+maxclaw dashboard --port 8080                     # Use custom port
+maxclaw dashboard --stop                          # Stop dashboard
+```
+
+Features:
+- **Real-time project status** - See which projects have active sessions
+- **Session summaries** - View AI-generated session summaries and their status
+- **Activity timeline** - Track recent actions across all projects
+- **Auto-refresh** - Data updates every 30 seconds
+- **Dark theme** - Easy on the eyes
+- **Fully local** - No data leaves your machine
+
+The dashboard automatically opens in your browser at `http://localhost:9876`.
+
 #### 🔍 Cross-Project Code Search
 Search across all registered projects:
 ```bash

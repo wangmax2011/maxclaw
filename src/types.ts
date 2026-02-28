@@ -185,7 +185,7 @@ export interface TaskAssignmentResult {
 
 // ===== E3: Schedule Types =====
 
-export type ScheduleTaskType = 'reminder' | 'backup' | 'command' | 'skill' | 'github-sync';
+export type ScheduleTaskType = 'reminder' | 'backup' | 'command' | 'skill';
 
 export type ScheduleStatus = 'pending' | 'running' | 'completed' | 'failed';
 
