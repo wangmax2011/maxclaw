@@ -1,7 +1,7 @@
 // MOD-007: Settings Screen - Global configuration management
 
 import React, { useState, useEffect } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { ScreenProps } from '../types.js';
 
 interface SettingsState {
@@ -20,26 +20,28 @@ interface SettingsState {
   };
 }
 
-interface ConfigSection {
-  id: string;
+type SectionType = 'scanPaths' | 'aiSettings' | 'multiplexSettings' | 'tuiSettings' | 'dataStorage';
+
+interface SectionDef {
+  id: SectionType;
   title: string;
-  items: ConfigItem[];
+  editable: boolean;
 }
 
-interface ConfigItem {
-  key: string;
-  label: string;
-  value: string | boolean | number;
-  type: 'string' | 'boolean' | 'number' | 'array';
-  description: string;
-}
+const SECTIONS: SectionDef[] = [
+  { id: 'scanPaths', title: 'Scan Paths', editable: true },
+  { id: 'aiSettings', title: 'AI Settings', editable: true },
+  { id: 'multiplexSettings', title: 'Session Pool', editable: true },
+  { id: 'tuiSettings', title: 'TUI Settings', editable: true },
+  { id: 'dataStorage', title: 'Data & Storage', editable: false },
+];
 
 export const SettingsScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) => {
   const [settings, setSettings] = useState<SettingsState | null>(null);
   const [selectedSection, setSelectedSection] = useState(0);
-  const [selectedItem, setSelectedItem] = useState(0);
-  const [isEditing, setIsEditing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [showAddPathInput, setShowAddPathInput] = useState(false);
+  const [newPath, setNewPath] = useState('');
 
   useEffect(() => {
     if (!onFocus) return;
@@ -77,7 +79,6 @@ export const SettingsScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) =
       const { loadConfig, saveConfig } = await import('../../config.js');
       const config = loadConfig();
 
-      // Update config with settings
       config.scanPaths = settings?.scanPaths || [];
       config.ai = {
         ...config.ai,
@@ -95,10 +96,10 @@ export const SettingsScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) =
       };
 
       saveConfig(config);
-      setStatusMessage('Configuration saved successfully!');
+      setStatusMessage('✓ Configuration saved!');
       setTimeout(() => setStatusMessage(''), 3000);
     } catch (error) {
-      setStatusMessage('Failed to save configuration');
+      setStatusMessage('✗ Failed to save configuration');
       setTimeout(() => setStatusMessage(''), 3000);
     }
   };
@@ -121,7 +122,7 @@ export const SettingsScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) =
         refreshInterval: config.tui?.refreshInterval || 3000,
       },
     });
-    setStatusMessage('Configuration reloaded!');
+    setStatusMessage('✓ Configuration reloaded!');
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
@@ -130,13 +131,151 @@ export const SettingsScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) =
     const dataDir = process.env.HOME + '/.maxclaw';
     try {
       execSync(`open "${dataDir}"`, { stdio: 'ignore' });
-      setStatusMessage(`Opened data directory: ${dataDir}`);
+      setStatusMessage(`✓ Opened: ${dataDir}`);
       setTimeout(() => setStatusMessage(''), 3000);
     } catch (error) {
-      setStatusMessage('Failed to open data directory');
+      setStatusMessage('✗ Failed to open data directory');
       setTimeout(() => setStatusMessage(''), 3000);
     }
   };
+
+  const handleAddPath = () => {
+    setShowAddPathInput(true);
+  };
+
+  const confirmAddPath = () => {
+    if (newPath.trim() && settings) {
+      setSettings({
+        ...settings,
+        scanPaths: [...settings.scanPaths, newPath.trim()],
+      });
+      setNewPath('');
+      setShowAddPathInput(false);
+      setStatusMessage('✓ Path added');
+      setTimeout(() => setStatusMessage(''), 2000);
+    }
+  };
+
+  const handleRemovePath = (index: number) => {
+    if (settings) {
+      const newPaths = settings.scanPaths.filter((_, i) => i !== index);
+      setSettings({ ...settings, scanPaths: newPaths });
+      setStatusMessage('✓ Path removed');
+      setTimeout(() => setStatusMessage(''), 2000);
+    }
+  };
+
+  const toggleSummaryEnabled = () => {
+    if (settings) {
+      setSettings({
+        ...settings,
+        aiSettings: { ...settings.aiSettings, summaryEnabled: !settings.aiSettings.summaryEnabled },
+      });
+    }
+  };
+
+  const incrementValue = (field: string) => {
+    if (!settings) return;
+    if (field === 'maxSessions') {
+      setSettings({
+        ...settings,
+        multiplexSettings: { ...settings.multiplexSettings, maxSessions: settings.multiplexSettings.maxSessions + 1 },
+      });
+    } else if (field === 'maxSessionsPerProject') {
+      setSettings({
+        ...settings,
+        multiplexSettings: { ...settings.multiplexSettings, maxSessionsPerProject: settings.multiplexSettings.maxSessionsPerProject + 1 },
+      });
+    } else if (field === 'refreshInterval') {
+      setSettings({
+        ...settings,
+        tuiSettings: { ...settings.tuiSettings, refreshInterval: settings.tuiSettings.refreshInterval + 1000 },
+      });
+    }
+  };
+
+  const decrementValue = (field: string) => {
+    if (!settings) return;
+    if (field === 'maxSessions' && settings.multiplexSettings.maxSessions > 1) {
+      setSettings({
+        ...settings,
+        multiplexSettings: { ...settings.multiplexSettings, maxSessions: settings.multiplexSettings.maxSessions - 1 },
+      });
+    } else if (field === 'maxSessionsPerProject' && settings.multiplexSettings.maxSessionsPerProject > 1) {
+      setSettings({
+        ...settings,
+        multiplexSettings: { ...settings.multiplexSettings, maxSessionsPerProject: settings.multiplexSettings.maxSessionsPerProject - 1 },
+      });
+    } else if (field === 'refreshInterval' && settings.tuiSettings.refreshInterval > 1000) {
+      setSettings({
+        ...settings,
+        tuiSettings: { ...settings.tuiSettings, refreshInterval: settings.tuiSettings.refreshInterval - 1000 },
+      });
+    }
+  };
+
+  // Handle keyboard input
+  useInput((input, key) => {
+    if (!settings) return;
+
+    // Navigation with arrow keys
+    if (key.upArrow) {
+      setSelectedSection((prev) => Math.max(0, prev - 1));
+    } else if (key.downArrow) {
+      setSelectedSection((prev) => Math.min(SECTIONS.length - 1, prev + 1));
+    }
+
+    // Section-specific actions
+    const currentSection = SECTIONS[selectedSection].id;
+
+    if (currentSection === 'scanPaths') {
+      if (input === 'a') {
+        handleAddPath();
+      } else if (input === 'd' || input === 'D') {
+        // Remove last path for simplicity
+        if (settings.scanPaths.length > 0) {
+          handleRemovePath(settings.scanPaths.length - 1);
+        }
+      }
+    }
+
+    // AI Settings actions
+    if (currentSection === 'aiSettings') {
+      if (input === 'e' || input === 'E') {
+        toggleSummaryEnabled();
+      }
+    }
+
+    // Numeric value editing
+    if (currentSection === 'multiplexSettings' || currentSection === 'tuiSettings') {
+      if (input === '+') {
+        incrementValue(currentSection === 'multiplexSettings' ? 'maxSessions' : 'refreshInterval');
+      } else if (input === '-') {
+        decrementValue(currentSection === 'multiplexSettings' ? 'maxSessions' : 'refreshInterval');
+      }
+    }
+
+    // Global actions
+    if (input === 's' || input === 'S') {
+      handleSave();
+    } else if (input === 'r' || input === 'R') {
+      handleReload();
+    } else if (input === 'o' || input === 'O') {
+      handleOpenDataDir();
+    }
+
+    // Number input for adding path
+    if (showAddPathInput) {
+      if (key.return) {
+        confirmAddPath();
+      } else if (key.escape) {
+        setShowAddPathInput(false);
+        setNewPath('');
+      } else {
+        setNewPath((prev) => prev + input);
+      }
+    }
+  }, { isActive: true });
 
   if (!settings) {
     return <Text>Loading settings...</Text>;
@@ -147,88 +286,106 @@ export const SettingsScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) =
       <Text bold color="green">Settings</Text>
       <Text> </Text>
 
-      {/* Scan Paths Management */}
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-        <Text bold color="cyan">Scan Paths</Text>
-        <Text> </Text>
-        {settings.scanPaths.length === 0 ? (
-          <Text dimColor>No scan paths configured</Text>
-        ) : (
-          settings.scanPaths.map((path, index) => (
-            <Box key={index} marginBottom={1}>
-              <Text color="green">  {index + 1}. </Text>
-              <Text>{path}</Text>
-            </Box>
-          ))
-        )}
-        <Text> </Text>
-        <Text dimColor>[a] Add path | [d] Remove path</Text>
-      </Box>
+      {SECTIONS.map((section, index) => {
+        const isSelected = index === selectedSection;
+        const highlight = isSelected ? 'yellow' : 'cyan';
 
-      {/* AI Settings */}
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-        <Text bold color="cyan">AI Settings</Text>
-        <Text> </Text>
-        <SettingItem
-          label="Summary Enabled"
-          value={settings.aiSettings.summaryEnabled ? 'Yes' : 'No'}
-          description="Enable AI-powered session summaries"
-        />
-        <SettingItem
-          label="Summary Model"
-          value={settings.aiSettings.summaryModel}
-          description="Model used for generating summaries"
-        />
-        <SettingItem
-          label="API Key"
-          value={settings.aiSettings.apiKey || 'Not configured'}
-          description="Anthropic API Key (encrypted storage)"
-        />
-        <Text> </Text>
-        <Text dimColor>[e] Edit value</Text>
-      </Box>
+        return (
+          <Box
+            key={section.id}
+            flexDirection="column"
+            borderStyle="single"
+            borderColor={isSelected ? 'yellow' : 'gray'}
+            paddingX={1}
+            marginBottom={1}
+          >
+            <Text bold color={highlight}>{section.title}</Text>
+            <Text> </Text>
 
-      {/* Session Pool Configuration */}
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-        <Text bold color="cyan">Session Pool</Text>
-        <Text> </Text>
-        <SettingItem
-          label="Max Sessions"
-          value={settings.multiplexSettings.maxSessions.toString()}
-          description="Maximum concurrent sessions"
-        />
-        <SettingItem
-          label="Max Sessions Per Project"
-          value={settings.multiplexSettings.maxSessionsPerProject.toString()}
-          description="Maximum sessions per project"
-        />
-        <Text> </Text>
-        <Text dimColor>[e] Edit value</Text>
-      </Box>
+            {section.id === 'scanPaths' && (
+              <>
+                {settings.scanPaths.length === 0 ? (
+                  <Text dimColor>No scan paths configured</Text>
+                ) : (
+                  settings.scanPaths.map((path, idx) => (
+                    <Box key={idx} marginBottom={1}>
+                      <Text color="green">  {idx + 1}. </Text>
+                      <Text>{path}</Text>
+                    </Box>
+                  ))
+                )}
+                {showAddPathInput ? (
+                  <Box>
+                    <Text color="yellow">New path: </Text>
+                    <Text>{newPath}</Text>
+                    <Text dimColor> [Enter] Confirm [Esc] Cancel</Text>
+                  </Box>
+                ) : (
+                  <Text dimColor>[a] Add path | [d] Remove last</Text>
+                )}
+              </>
+            )}
 
-      {/* TUI Settings */}
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-        <Text bold color="cyan">TUI Settings</Text>
-        <Text> </Text>
-        <SettingItem
-          label="Refresh Interval"
-          value={`${settings.tuiSettings.refreshInterval}ms`}
-          description="TUI auto-refresh interval"
-        />
-        <Text> </Text>
-        <Text dimColor>[e] Edit value</Text>
-      </Box>
+            {section.id === 'aiSettings' && (
+              <>
+                <SettingItem
+                  label="Summary Enabled"
+                  value={settings.aiSettings.summaryEnabled ? 'Yes ✓' : 'No'}
+                  description="Enable AI-powered session summaries"
+                />
+                <SettingItem
+                  label="Summary Model"
+                  value={settings.aiSettings.summaryModel}
+                  description="Model used for generating summaries"
+                />
+                <SettingItem
+                  label="API Key"
+                  value={settings.aiSettings.apiKey || 'Not configured'}
+                  description="Anthropic API Key (encrypted storage)"
+                />
+                <Text dimColor>[e] Toggle Summary Enabled</Text>
+              </>
+            )}
 
-      {/* Data & Storage Info */}
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-        <Text bold color="cyan">Data & Storage</Text>
-        <Text> </Text>
-        <Text>  Data Directory: ~/.maxclaw/</Text>
-        <Text>  Config File: ~/.maxclaw/config.yaml</Text>
-        <Text>  Database: ~/.maxclaw/data.db</Text>
-        <Text> </Text>
-        <Text dimColor>[o] Open data directory</Text>
-      </Box>
+            {section.id === 'multiplexSettings' && (
+              <>
+                <SettingItem
+                  label="Max Sessions"
+                  value={settings.multiplexSettings.maxSessions.toString()}
+                  description="Maximum concurrent sessions"
+                />
+                <SettingItem
+                  label="Max Sessions Per Project"
+                  value={settings.multiplexSettings.maxSessionsPerProject.toString()}
+                  description="Maximum sessions per project"
+                />
+                <Text dimColor>[+] Increase | [-] Decrease</Text>
+              </>
+            )}
+
+            {section.id === 'tuiSettings' && (
+              <>
+                <SettingItem
+                  label="Refresh Interval"
+                  value={`${settings.tuiSettings.refreshInterval}ms`}
+                  description="TUI auto-refresh interval"
+                />
+                <Text dimColor>[+] Increase | [-] Decrease</Text>
+              </>
+            )}
+
+            {section.id === 'dataStorage' && (
+              <>
+                <Text>  Data Directory: ~/.maxclaw/</Text>
+                <Text>  Config File: ~/.maxclaw/config.yaml</Text>
+                <Text>  Database: ~/.maxclaw/data.db</Text>
+                <Text> </Text>
+                <Text dimColor>[o] Open data directory</Text>
+              </>
+            )}
+          </Box>
+        );
+      })}
 
       {/* Action Buttons */}
       <Box marginBottom={1}>
@@ -241,12 +398,10 @@ export const SettingsScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) =
         )}
       </Box>
 
-      {/* Export/Import Config */}
+      {/* Help Footer */}
       <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
-        <Text bold color="cyan">Import/Export</Text>
-        <Text> </Text>
-        <Text dimColor>[x] Export configuration</Text>
-        <Text dimColor>[i] Import configuration</Text>
+        <Text bold dimColor>Quick Help</Text>
+        <Text dimColor>↑↓ Navigate sections | [a] Add | [d] Delete | [+/-] Adjust values | [s] Save | [r] Reload</Text>
       </Box>
     </Box>
   );
