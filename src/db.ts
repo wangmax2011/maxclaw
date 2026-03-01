@@ -5,6 +5,7 @@ import path from 'path';
 
 import { DATA_DIR, DB_PATH } from './config.js';
 import { logger } from './logger.js';
+import { createSkillsSchema } from './skills/skill-db.js';
 import { Activity, Project, Session } from './types.js';
 
 let db: Database.Database;
@@ -201,6 +202,7 @@ export function initDatabase(): void {
 
   db = new Database(DB_PATH);
   createSchema(db);
+  createSkillsSchema(db);
   runMigrations(db);
   logger.debug('Database initialized at %s', DB_PATH);
 }
@@ -209,6 +211,7 @@ export function initDatabase(): void {
 export function _initTestDatabase(): void {
   db = new Database(':memory:');
   createSchema(db);
+  createSkillsSchema(db);
   runMigrations(db);
 }
 
