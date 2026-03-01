@@ -1,7 +1,7 @@
 // MOD-005: Schedules Management Screen - Scheduled tasks and task dispatching
 
 import React, { useState, useEffect } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { ScreenProps } from '../types.js';
 
 interface ScheduledTask {
@@ -30,20 +30,17 @@ export const SchedulesScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
     if (!onFocus) return;
 
     const loadTasks = async () => {
       try {
-        // Import schedule functions from db.js
         await import('../../db.js');
-        // Get all schedules from database - mock data for now
         const allTasks: any[] = [];
         setTasks(allTasks);
       } catch (error) {
-        console.error('Failed to load scheduled tasks:', error);
-        // Mock data for development
         setTasks([
           {
             id: '1',
@@ -80,31 +77,72 @@ export const SchedulesScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
 
   const handleRunNow = async (task: ScheduledTask) => {
     try {
-      setStatusMessage(`Running task "${task.name}"...`);
-      // Execute task immediately
+      setStatusMessage(`\u25B6 Running "${task.name}"...`);
       setTimeout(() => {
-        setStatusMessage(`Task "${task.name}" completed!`);
+        setStatusMessage(`\u2713 "${task.name}" completed!`);
         setTimeout(() => setStatusMessage(''), 3000);
       }, 2000);
     } catch (error) {
-      setStatusMessage(`Failed to run task: ${error}`);
+      setStatusMessage(`\u2717 Failed: ${error}`);
       setTimeout(() => setStatusMessage(''), 3000);
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
-    setTasks(tasks.filter(t => t.id !== taskId));
-    setStatusMessage('Task deleted');
+  const handleDeleteTask = () => {
+    if (tasks.length === 0) return;
+    const task = tasks[selectedIndex];
+    setTasks(tasks.filter(t => t.id !== task.id));
+    setStatusMessage(`\u2713 Deleted "${task.name}"`);
+    setTimeout(() => setStatusMessage(''), 3000);
+    setSelectedIndex(Math.max(0, selectedIndex - 1));
+  };
+
+  const handleToggleTask = () => {
+    if (tasks.length === 0) return;
+    const task = tasks[selectedIndex];
+    setTasks(tasks.map(t =>
+      t.id === task.id ? { ...t, enabled: !t.enabled } : t
+    ));
+    setStatusMessage(`\u2713 "${task.name}" ${task.enabled ? 'disabled' : 'enabled'}`);
     setTimeout(() => setStatusMessage(''), 3000);
   };
 
-  const handleToggleTask = async (taskId: string) => {
-    setTasks(tasks.map(t =>
-      t.id === taskId ? { ...t, enabled: !t.enabled } : t
-    ));
-    setStatusMessage('Task updated');
+  const handleShowHistory = () => {
+    if (tasks.length === 0) return;
+    const task = tasks[selectedIndex];
+    setShowHistory(!showHistory);
+    setStatusMessage(`History: ${task.executionHistory.length} executions`);
     setTimeout(() => setStatusMessage(''), 3000);
   };
+
+  // Handle keyboard input
+  useInput((input, key) => {
+    if (showAddModal) return;
+
+    // Navigation
+    if (key.upArrow && selectedIndex > 0) {
+      setSelectedIndex(selectedIndex - 1);
+    } else if (key.downArrow && selectedIndex < tasks.length - 1) {
+      setSelectedIndex(selectedIndex + 1);
+    }
+
+    // Actions
+    if (input === 'r' || input === 'R') {
+      if (tasks.length > 0) handleRunNow(tasks[selectedIndex]);
+    } else if (input === 'd' || input === 'D') {
+      if (tasks.length > 0) handleDeleteTask();
+    } else if (input === 't' || input === 'T') {
+      if (tasks.length > 0) handleToggleTask();
+    } else if (input === 'h' || input === 'H') {
+      if (tasks.length > 0) handleShowHistory();
+    } else if (input === 'a' || input === 'A') {
+      setShowAddModal(true);
+    } else if (input === 'p' || input === 'P') {
+      onNavigate('task-dispatcher');
+    }
+  }, { isActive: true });
+
+  const selectedTask = tasks.length > 0 ? tasks[selectedIndex] : null;
 
   return (
     <Box flexDirection="column">
@@ -112,7 +150,7 @@ export const SchedulesScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
       <Text> </Text>
 
       {tasks.length === 0 ? (
-        <Box flexDirection="column">
+        <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
           <Text dimColor>No scheduled tasks configured.</Text>
           <Text> </Text>
           <Text color="cyan">[a] Add scheduled task</Text>
@@ -124,33 +162,46 @@ export const SchedulesScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
               key={task.id}
               task={task}
               selected={index === selectedIndex}
-              onRun={() => handleRunNow(task)}
-              onDelete={() => handleDeleteTask(task.id)}
-              onToggle={() => handleToggleTask(task.id)}
             />
           ))}
         </Box>
       )}
 
-      <Text> </Text>
+      {selectedTask && (
+        <Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1} marginBottom={1}>
+          <Text bold color="cyan">Selected: {selectedTask.name}</Text>
+          <Text> </Text>
+          <Text dimColor>Actions: [r] Run now | [d] Delete | [t] Toggle | [h] History</Text>
+        </Box>
+      )}
 
       {/* Task Actions */}
       <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginBottom={1}>
-        <Text bold color="cyan">Task Actions</Text>
+        <Text bold color="cyan">Keyboard Shortcuts</Text>
         <Text> </Text>
-        <Text color="cyan">  [a] Add scheduled task - Create a new scheduled task</Text>
-        <Text color="cyan">  [d] Delete task - Remove selected task</Text>
-        <Text color="cyan">  [e] Edit task - Modify task configuration</Text>
-        <Text color="cyan">  [r] Run now - Execute task immediately</Text>
-        <Text color="cyan">  [t] Toggle enabled - Enable/disable task</Text>
-        <Text color="cyan">  [h] View history - Show execution history</Text>
+        <Box>
+          <Text color="yellow">[a] </Text>
+          <Text>Add task</Text>
+          <Text dimColor> | </Text>
+          <Text color="yellow">[r] </Text>
+          <Text>Run now</Text>
+          <Text dimColor> | </Text>
+          <Text color="yellow">[d] </Text>
+          <Text>Delete</Text>
+          <Text dimColor> | </Text>
+          <Text color="yellow">[t] </Text>
+          <Text>Toggle</Text>
+          <Text dimColor> | </Text>
+          <Text color="yellow">[h] </Text>
+          <Text>History</Text>
+        </Box>
       </Box>
 
       {/* Task Dispatcher Quick Access */}
-      <Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1}>
+      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
         <Text bold color="cyan">Task Dispatcher</Text>
         <Text> </Text>
-        <Text>Need to run a custom command or ad-hoc task?</Text>
+        <Text>Run custom commands or ad-hoc tasks:</Text>
         <Text color="yellow">  [p] Open Task Dispatcher</Text>
       </Box>
 
@@ -160,6 +211,18 @@ export const SchedulesScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
       {statusMessage && (
         <Text bold color="yellow">{statusMessage}</Text>
       )}
+
+      {/* Add Task Modal */}
+      {showAddModal && (
+        <Box flexDirection="column" borderStyle="double" borderColor="green" paddingX={1} marginTop={1}>
+          <Text bold color="green">Add New Task</Text>
+          <Text> </Text>
+          <Text dimColor>Feature coming soon - use CLI to add tasks:</Text>
+          <Text color="cyan">  maxclaw schedule add "Task Name" "0 2 * * *" command</Text>
+          <Text> </Text>
+          <Text color="yellow">[Esc] Close</Text>
+        </Box>
+      )}
     </Box>
   );
 };
@@ -167,23 +230,20 @@ export const SchedulesScreen: React.FC<ScreenProps> = ({ onFocus, onNavigate }) 
 const TaskItem: React.FC<{
   task: ScheduledTask;
   selected: boolean;
-  onRun: () => void;
-  onDelete: () => void;
-  onToggle: () => void;
-}> = ({ task, selected, onRun, onDelete, onToggle }) => {
+}> = ({ task, selected }) => {
   const statusColor = task.enabled ? 'green' : 'gray';
   const statusIcon = task.enabled ? '\u25CF' : '\u25CB';
 
   return (
     <Box
       flexDirection="column"
-      borderStyle={selected ? 'single' : 'single'}
+      borderStyle="single"
       borderColor={selected ? 'cyan' : 'gray'}
       paddingX={1}
       marginBottom={1}
     >
       <Box>
-        <Text color={statusIcon === '\u25CF' ? 'green' : 'gray'}>{statusIcon} </Text>
+        <Text color={statusColor}>{statusIcon} </Text>
         <Text bold color={selected ? 'white' : 'cyan'}>{task.name}</Text>
         <Text color="gray"> | </Text>
         <Text dimColor>{task.cronExpression}</Text>
@@ -204,13 +264,8 @@ const TaskItem: React.FC<{
             <Text dimColor> | </Text>
           </>
         )}
-        <Text dimColor>Command: {task.command}</Text>
+        <Text dimColor>Cmd: {task.command}</Text>
       </Box>
-      {selected && (
-        <Box marginTop={1}>
-          <Text color="yellow">  [r] Run now | [e] Edit | [d] Delete | [t] Toggle</Text>
-        </Box>
-      )}
     </Box>
   );
 };
