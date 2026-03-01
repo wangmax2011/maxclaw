@@ -29,8 +29,8 @@ Thumbs.db
 # Test coverage
 coverage/
 
-# BMAD output
-_bmad-output/
+# BMAD output (now in docs/)
+docs/_bmad-output/
 
 # Ralph BMAD templates
 ralph-bmad-templates/
@@ -38,5 +38,5 @@ ralph-bmad-templates/
 # Claude
 .claude/
 
-# BMAD
-_bmad/
+# BMAD (now in docs/)
+docs/_bmad/

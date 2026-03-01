@@ -191,6 +191,65 @@ Based on [NanoClaw](https://github.com/AnthropicLabs/NanoClaw), enhanced with:
 - Optional: ripgrep (rg) for code search
 - Optional: ANTHROPIC_API_KEY for AI session summaries
 
+## Installation
+
+### Quick Install (Recommended)
+
+Clone and install with one command:
+
+```bash
+# Clone repository
+git clone https://github.com/wangmax2011/maxclaw.git
+cd maxclaw
+
+# Run installation script
+bash install.sh
+```
+
+The installation script will:
+- Check Node.js version (requires 20+)
+- Install dependencies
+- Build the project
+- Install `maxclaw` command globally
+
+### Manual Installation
+
+```bash
+# Clone repository
+git clone https://github.com/wangmax2011/maxclaw.git
+cd maxclaw
+
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Link globally
+npm link
+```
+
+### Verify Installation
+
+```bash
+maxclaw --version
+maxclaw --help
+```
+
+### Troubleshooting
+
+If `maxclaw` command is not found after installation, add npm global bin directory to your PATH:
+
+```bash
+# For bash/zsh (add to ~/.bashrc or ~/.zshrc)
+export PATH="$(npm config get prefix)/bin:$PATH"
+```
+
+Then reload your shell:
+```bash
+source ~/.bashrc  # or source ~/.zshrc
+```
+
 ## Development
 
 ```bash
