@@ -14,8 +14,12 @@ import {
   getProject,
   listTeams,
   listTeamMembers,
+  deleteProject,
+  createProject,
 } from './db.js';
+import { loadConfig, saveConfig } from './config.js';
 import { execSync } from 'child_process';
+import { v4 as uuidv4 } from 'uuid';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -478,6 +482,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   <div class="header">
     <h1>🐾 MaxClaw Dashboard</h1>
     <p>Local Project Assistant Overview</p>
+    <a href="/admin" style="color: #00d4ff; text-decoration: none; margin-top: 10px; display: inline-block;">⚙️ Admin Panel</a>
   </div>
 
   <div class="container">
@@ -794,18 +799,46 @@ export class DashboardServer {
     // Route handling
     if (url === '/' || url === '/index.html') {
       this.serveDashboard(res);
+    } else if (url === '/admin') {
+      this.serveAdmin(res);
     } else if (url === '/api/stats') {
       this.serveStats(res);
     } else if (url === '/api/projects') {
-      this.serveProjects(res);
+      if (req.method === 'POST') {
+        this.handleAddProject(req, res);
+      } else if (req.method === 'DELETE') {
+        this.handleDeleteProject(req, res);
+      } else {
+        this.serveProjects(res);
+      }
     } else if (url === '/api/sessions') {
       this.serveSessions(res);
     } else if (url === '/api/activities') {
       this.serveActivities(res);
+    } else if (url === '/api/config') {
+      if (req.method === 'GET') {
+        this.serveConfig(res);
+      } else if (req.method === 'POST') {
+        this.handleSaveConfig(req, res);
+      }
+    } else if (url === '/api/skills') {
+      if (req.method === 'GET') {
+        this.serveSkills(res);
+      } else if (req.method === 'POST') {
+        this.handleToggleSkill(req, res);
+      }
+    } else if (url === '/api/schedules') {
+      this.serveSchedules(res);
     } else {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Not found' }));
     }
+  }
+
+  private serveAdmin(res: http.ServerResponse): void {
+    const adminHtml = fs.readFileSync(path.join(__dirname, 'dashboard-admin.html'), 'utf-8');
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(adminHtml);
   }
 
   private serveDashboard(res: http.ServerResponse): void {
@@ -887,6 +920,138 @@ export class DashboardServer {
       logger.error('Error serving activities: %s', error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Failed to load activities' }));
+    }
+  }
+
+  private serveConfig(res: http.ServerResponse): void {
+    try {
+      const config = loadConfig();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(config));
+    } catch (error) {
+      logger.error('Error serving config: %s', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to load config' }));
+    }
+  }
+
+  private handleSaveConfig(req: http.IncomingMessage, res: http.ServerResponse): void {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const newConfig = JSON.parse(body);
+        const config = loadConfig();
+
+        // Merge config
+        if (newConfig.scanPaths !== undefined) config.scanPaths = newConfig.scanPaths;
+        if (newConfig.ai) config.ai = { ...config.ai, ...newConfig.ai };
+        if (newConfig.multiplex) config.multiplex = { ...config.multiplex, ...newConfig.multiplex };
+        if (newConfig.tui) config.tui = { ...config.tui, ...newConfig.tui };
+
+        saveConfig(config);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (error) {
+        logger.error('Error saving config: %s', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to save config' }));
+      }
+    });
+  }
+
+  private handleAddProject(req: http.IncomingMessage, res: http.ServerResponse): void {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const { name, path } = JSON.parse(body);
+        if (!name || !path) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Name and path are required' }));
+          return;
+        }
+
+        const project = {
+          id: uuidv4(),
+          name,
+          path,
+          description: '',
+          techStack: [],
+          discoveredAt: new Date().toISOString(),
+          lastAccessed: new Date().toISOString(),
+        };
+
+        createProject(project);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, project }));
+      } catch (error) {
+        logger.error('Error adding project: %s', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to add project' }));
+      }
+    });
+  }
+
+  private handleDeleteProject(req: http.IncomingMessage, res: http.ServerResponse): void {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const { id } = JSON.parse(body);
+        if (!id) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Project ID is required' }));
+          return;
+        }
+
+        deleteProject(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (error) {
+        logger.error('Error deleting project: %s', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to delete project' }));
+      }
+    });
+  }
+
+  private serveSkills(res: http.ServerResponse): void {
+    try {
+      // Return mock skills data - will be implemented later
+      const skills = [
+        { id: '1', name: 'brainstorming', description: 'Brainstorming ideas into designs', enabled: true },
+        { id: '2', name: 'test-driven-development', description: 'TDD workflow', enabled: false },
+        { id: '3', name: 'writing-plans', description: 'Write implementation plans', enabled: true },
+      ];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(skills));
+    } catch (error) {
+      logger.error('Error serving skills: %s', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to load skills' }));
+    }
+  }
+
+  private handleToggleSkill(req: http.IncomingMessage, res: http.ServerResponse): void {
+    // Mock implementation - will be implemented later
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+  }
+
+  private serveSchedules(res: http.ServerResponse): void {
+    try {
+      // Return mock schedules data - will be implemented later
+      const schedules = [
+        { id: '1', name: 'Daily Backup', cronExpression: '0 2 * * *', enabled: true },
+        { id: '2', name: 'Weekly Report', cronExpression: '0 9 * * 1', enabled: false },
+      ];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(schedules));
+    } catch (error) {
+      logger.error('Error serving schedules: %s', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to load schedules' }));
     }
   }
 }

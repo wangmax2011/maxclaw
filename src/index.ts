@@ -3046,29 +3046,6 @@ program
     }
   });
 
-// ===== EPIC-008: TUI Command =====
-
-program
-  .command('tui')
-  .description('Launch the MaxClaw Terminal User Interface')
-  .action(async () => {
-    try {
-      const { render } = await import('ink');
-      const React = await import('react');
-      const { App } = await import('./tui/app.js');
-
-      console.log('🚀 Launching MaxClaw TUI...\n');
-
-      const { waitUntilExit } = render(React.default.createElement(App));
-      await waitUntilExit();
-    } catch (error) {
-      console.error(`❌ Error launching TUI: ${error}`);
-      console.log('\n💡 Make sure you have installed the TUI dependencies:');
-      console.log('   npm install ink react\n');
-      process.exit(1);
-    }
-  });
-
 // ===== EPIC-006: Multiplexing Commands =====
 
 const multiplexCommand = program

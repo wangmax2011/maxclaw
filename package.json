@@ -5,13 +5,11 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "maxclaw": "dist/index.js",
-    "maxclaw-tui": "dist/tui-cli.js"
+    "maxclaw": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp src/dashboard-admin.html dist/",
     "start": "node dist/index.js",
-    "tui": "node dist/tui-cli.js",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -29,10 +27,8 @@
     "chalk": "^5.6.2",
     "commander": "^13.0.0",
     "cron-parser": "^5.5.0",
-    "ink": "^6.8.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
-    "react": "^19.2.4",
     "uuid": "^11.1.0",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"
@@ -41,7 +37,6 @@
     "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
-    "@types/react": "^19.2.14",
     "@types/uuid": "^10.0.0",
     "@vitest/coverage-v8": "^4.0.18",
     "prettier": "^3.8.1",

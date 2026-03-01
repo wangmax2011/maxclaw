@@ -61,11 +61,17 @@ Features:
 - **Real-time project status** - See which projects have active sessions
 - **Session summaries** - View AI-generated session summaries and their status
 - **Activity timeline** - Track recent actions across all projects
+- **Admin Panel** - Manage all MaxClaw settings from web UI at `/admin`
+  - Configure scan paths, AI settings, session pool limits
+  - Add/remove projects
+  - Enable/disable skills
+  - Manage scheduled tasks
 - **Auto-refresh** - Data updates every 30 seconds
 - **Dark theme** - Easy on the eyes
 - **Fully local** - No data leaves your machine
 
 The dashboard automatically opens in your browser at `http://localhost:9876`.
+Access the Admin Panel at `http://localhost:9876/admin`.
 
 #### 🔍 Cross-Project Code Search
 Search across all registered projects:
@@ -122,28 +128,6 @@ Features:
 - **Session Pool** - Limit concurrent sessions system-wide and per-project
 - **Resource Monitoring** - CPU and memory usage tracking with auto-throttling
 - **Session Queue** - Queue sessions when limits reached with priority scheduling
-
-#### 🖥️ Terminal User Interface (TUI)
-Interactive terminal dashboard for managing MaxClaw:
-```bash
-maxclaw tui                                         # Launch TUI interface
-```
-
-Keyboard shortcuts:
-- `[1]` Dashboard - Overview and quick stats
-- `[2]` Projects - Browse and manage projects
-- `[3]` Sessions - View and control sessions
-- `[4]` Teams - Manage team members and tasks
-- `[s]` Quick access to Sessions
-- `[d]` Quick project discovery
-- `[h]` Help - Show keyboard shortcuts
-- `[q]` Quit TUI
-
-Features:
-- **Real-time updates** - Auto-refresh every 3 seconds
-- **Resource monitoring** - Live CPU and memory usage tracking
-- **Interactive navigation** - Keyboard-driven interface
-- **Session management** - Start, stop, and monitor sessions visually
 
 ## Installation
 
@@ -216,15 +200,40 @@ npm test
 # Run tests in watch mode
 npm run test:watch
 
+# Run E2E tests (requires dashboard running)
+npm run test:e2e
+
 # Build
 npm run build
 
 # Type check
 npm run typecheck
-
-# Lint
-npm run lint
 ```
+
+## Testing
+
+MaxClaw includes comprehensive test coverage:
+
+### Unit Tests
+Run unit tests with:
+```bash
+npm test
+```
+
+### E2E Tests
+Playwright-based end-to-end tests for the Web Dashboard:
+```bash
+npm run test:e2e
+```
+
+E2E tests verify:
+- Dashboard page loads and displays stats correctly
+- Admin panel navigation and settings management
+- Project add/delete operations
+- Skills toggle functionality
+- API data integrity
+
+Test reports are generated in `playwright-report/` directory.
 
 ## Privacy & Security
 
