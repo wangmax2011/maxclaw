@@ -39,9 +39,9 @@ fi
 echo "✓ npm $(npm -v) installed"
 echo ""
 
-# Install dependencies
+# Install dependencies (including devDependencies needed for build)
 echo "Installing dependencies..."
-npm install --production
+npm install
 
 echo "✓ Dependencies installed"
 echo ""
