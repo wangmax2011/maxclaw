@@ -10,8 +10,17 @@ docs/
 ├── specs/         # Technical specifications and design docs
 ├── plans/         # Project plans and roadmaps
 ├── config/        # Configuration files and YAML specs
-├── _bmad/         # BMAD method workflow files
-└── _bmad-output/  # BMAD generated output files
+└── README.md      # This file
+```
+
+## Root Folder Files (Not in docs/)
+
+The following folders remain in the root directory for tool compatibility:
+
+- `_bmad/` - BMAD method workflow files (required by BMAD tools)
+- `_bmad-output/` - BMAD generated output files (required by BMAD tools)
+- `agents/` - Agent configuration files
+- `ralph-bmad-templates/` - Ralph BMAD templates
 ```
 
 ## Contents
